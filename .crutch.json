@@ -1,0 +1,1 @@
+{"project": {"username": "m4yers", "type": "cpp", "name": "MAD", "features": ["make", "feature", "gtest", "file"]}, "sys": {"login": "m4yers"}, "feature": {"build": {"cmake": "cmake"}}, "crutch": {"python": "/usr/local/opt/python/bin/python2.7", "version": "0.3.0", "logging": {"level": "warning"}}}
