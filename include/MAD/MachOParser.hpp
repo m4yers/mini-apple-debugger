@@ -16,28 +16,26 @@
 #include <uuid/uuid.h>
 
 #include "MAD/Debug.hpp"
+#include "MAD/Mach.hpp"
 
 namespace mad {
 
-using MachOParser32_t = std::integral_constant<int, 1>;
-using MachOParser64_t = std::integral_constant<int, 0>;
+#define MO_PARSE_IMAGE 0
+#define MO_PARSE_FILE 1
 
-template <typename T,
-          typename = std::enable_if_t<std::is_same_v<T, MachOParser32_t> ||
-                                      std::is_same_v<T, MachOParser64_t>>>
-class MachOParser {
+template <typename T, typename = IsMachSystem_t<T>> class MachOParser {
 private:
-  using HeaderCmd_t = std::conditional_t<std::is_same_v<T, MachOParser32_t>,
+  using HeaderCmd_t = std::conditional_t<std::is_same_v<T, MachSystem32_t>,
                                          mach_header, mach_header_64>;
-  using SegmentCmd_t = std::conditional_t<std::is_same_v<T, MachOParser32_t>,
+  using SegmentCmd_t = std::conditional_t<std::is_same_v<T, MachSystem32_t>,
                                           segment_command, segment_command_64>;
-  using SectionCmd_t = std::conditional_t<std::is_same_v<T, MachOParser32_t>,
+  using SectionCmd_t = std::conditional_t<std::is_same_v<T, MachSystem32_t>,
                                           section, section_64>;
-  using NList_t = std::conditional_t<std::is_same_v<T, MachOParser32_t>,
+  using NList_t = std::conditional_t<std::is_same_v<T, MachSystem32_t>,
                                      struct nlist, struct nlist_64>;
 
-  static const bool Is32 = std::is_same_v<T, MachOParser32_t>;
-  static const bool Is64 = std::is_same_v<T, MachOParser64_t>;
+  static const bool Is32 = std::is_same_v<T, MachSystem32_t>;
+  static const bool Is64 = std::is_same_v<T, MachSystem64_t>;
   static const uint32_t lc_segment = Is32 ? LC_SEGMENT : LC_SEGMENT_64;
 
 private:
@@ -233,6 +231,7 @@ public:
 private:
   std::string Label;
   std::istream &Input;
+  uint32_t Flags;
 
 public:
   std::shared_ptr<MachOHeader> Header;
@@ -245,8 +244,8 @@ public:
   std::shared_ptr<MachODyLinker> DyLinkerId;
 
 public:
-  MachOParser(std::string label, std::istream &input)
-      : Label(label), Input(input) {}
+  MachOParser(std::string Label, std::istream &Input, uint32_t Flags)
+      : Label(Label), Input(Input), Flags(Flags) {}
 
   std::shared_ptr<MachOSegment> GetSegmentByName(std::string name) {
     for (auto segment : Segments) {
@@ -328,6 +327,7 @@ public:
     return PostParse();
   }
 
+private:
   bool PostParse() {
     if (SymbolTable) {
       SymbolTable->PostParse(*this);
@@ -336,8 +336,8 @@ public:
   }
 };
 
-using MachOParser32 = MachOParser<MachOParser32_t>;
-using MachOParser64 = MachOParser<MachOParser64_t>;
+using MachOParser32 = MachOParser<MachSystem32_t>;
+using MachOParser64 = MachOParser<MachSystem64_t>;
 
 } // namespace mad
 
