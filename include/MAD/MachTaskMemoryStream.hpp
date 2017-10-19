@@ -169,4 +169,11 @@ public:
   }
 };
 
+class MachTaskMemoryStream : public std::iostream {
+public:
+  MachTaskMemoryStreamBuf Buffer;
+  MachTaskMemoryStream(MachTask &Task, vm_address_t Address)
+      : std::iostream(&Buffer), Buffer(Task, Address) {}
+};
+
 #endif /* end of include guard: MACHTASKMEMORYSTREAM_HPP_8CBVRMN6 */
