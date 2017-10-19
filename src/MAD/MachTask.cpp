@@ -39,7 +39,7 @@ vm_size_t MachTask::ReadMemory(vm_address_t address, vm_size_t size,
   vm_size_t count;
   if (auto kern =
           vm_read_overwrite(Port, address, size, (vm_address_t)data, &count)) {
-    PRINT_KERN_ERROR_V(kern, " at ", HEX(address));
+    PRINT_KERN_ERROR_V(kern, " at ", HEX(address), " reading ", size, " bytes");
     return 0;
   }
   return count;
@@ -49,7 +49,7 @@ vm_size_t MachTask::WriteMemory(vm_address_t address, vm_offset_t data,
                                 mach_msg_type_number_t count) {
   assert(Port);
   if (auto kern = vm_write(Port, address, data, count)) {
-    PRINT_KERN_ERROR_V(kern, " at ", HEX(address));
+    PRINT_KERN_ERROR_V(kern, " at ", HEX(address), " writing ", count, " bytes");
     return 0;
   }
   return count;

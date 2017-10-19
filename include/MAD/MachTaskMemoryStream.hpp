@@ -44,14 +44,14 @@ private:
     return true;
   }
 
-  void SetPosition(vm_address_t count) {
-    Address = Base + count;
-    Position = count;
+  void SetPosition(vm_address_t Count) {
+    Address = Base + Count;
+    Position = Count;
   }
 
-  void AdvancePosition(long count = 1) {
-    Address += count;
-    Position += count;
+  void AdvancePosition(long Count = 1) {
+    Address += Count;
+    Position += Count;
   }
 
 public:
@@ -97,21 +97,59 @@ public:
   }
 
   int_type uflow() {
-    AdvancePosition();
     if (!UpdateBufferIfNeeded()) {
       return traits_type::eof();
     }
-    return traits_type::to_int_type(PageBuffer[Address % PageSize]);
+    auto Result = traits_type::to_int_type(PageBuffer[Address % PageSize]);
+    AdvancePosition();
+    return Result;
   }
 
-  std::streamsize xsgetn(char_type *s, std::streamsize count) {
-    // TODO: Handle page boundries
+  std::streamsize xsgetn(char_type *Out, std::streamsize Count) {
     if (!UpdateBufferIfNeeded()) {
       return 0;
     }
-    memcpy(s, PageBuffer.data() + (Address % PageSize), count);
-    AdvancePosition(count);
-    return count;
+
+    auto Written = 0;
+
+    // If the requested data sits on 2+ pages we handle this explicitly
+    auto LastBytePageStart = (Address + Count - 1) & PageMask;
+    if (LastBytePageStart != PageStart) {
+      // Write what'Out left on the current page
+      auto LeftHere = PageSize - (Address % PageSize);
+      memcpy(Out, PageBuffer.data() + (Address % PageSize), LeftHere);
+      AdvancePosition(LeftHere);
+      Written += LeftHere;
+      Count -= LeftHere;
+
+      // If the read range occupies more than two pages we just read middle
+      // pages sequentially.
+      auto MorePages = (LastBytePageStart - PageStart) / PageSize;
+      while (MorePages != 1) {
+        if (!UpdateBufferIfNeeded()) {
+          return Written;
+        }
+        memcpy(Out, PageBuffer.data(), PageSize);
+        AdvancePosition(PageSize);
+        Written += PageSize;
+        Count -= PageSize;
+        MorePages--;
+      }
+
+      if (!Count) {
+        return Written;
+      }
+    }
+
+    if (!UpdateBufferIfNeeded()) {
+      return Written;
+    }
+
+    memcpy(Out, PageBuffer.data() + (Address % PageSize), Count);
+    AdvancePosition(Count);
+    Written += Count;
+
+    return Written;
   }
 
   //-----------------------------------------------------------------------------
