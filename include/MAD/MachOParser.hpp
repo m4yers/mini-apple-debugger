@@ -12,6 +12,7 @@
 
 #include <dlfcn.h>
 #include <mach-o/loader.h>
+#include <mach-o/nlist.h>
 #include <uuid/uuid.h>
 
 #include "MAD/Debug.hpp"
@@ -32,24 +33,32 @@ private:
                                           segment_command, segment_command_64>;
   using SectionCmd_t = std::conditional_t<std::is_same_v<T, MachOParser32_t>,
                                           section, section_64>;
+  using NList_t = std::conditional_t<std::is_same_v<T, MachOParser32_t>,
+                                     struct nlist, struct nlist_64>;
 
 #define READ_IMAGE(type, name)                                                 \
-  auto name##cmd = &name.Command;                                              \
-  Input.read((char *)name##cmd, sizeof(name.Command));                         \
+  auto name##cmd = &name.Raw;                                                  \
+  Input.read((char *)name##cmd, sizeof(name.Raw));                             \
   name.Parse(Input);
 
 #define READ_IMAGE_L(type, name)                                               \
   type name;                                                                   \
-  auto name##cmd = &name.Command;                                              \
-  Input.read((char *)name##cmd, sizeof(name.Command));                         \
+  auto name##cmd = &name.Raw;                                                  \
+  Input.read((char *)name##cmd, sizeof(name.Raw));                             \
   name.Parse(Input);
+
+#define READ_IMAGE_L_S(type, name)                                             \
+  auto name = std::make_shared<type>();                                        \
+  auto name##cmd = &name->Raw;                                                 \
+  Input.read((char *)name##cmd, sizeof(name->Raw));                            \
+  name->Parse(Input);
 
   static const bool Is32 = std::is_same_v<T, MachOParser32_t>;
   static const bool Is64 = std::is_same_v<T, MachOParser64_t>;
   static const uint32_t lc_segment = Is32 ? LC_SEGMENT : LC_SEGMENT_64;
 
 private:
-  static std::string ReadLCStringFromInput(std::istream &Input) {
+  static std::string ReadNTStringFromInput(std::istream &Input) {
     std::string result;
     while (true) {
       char ch;
@@ -65,7 +74,7 @@ private:
 public:
   template <typename C> class MachOThing {
   public:
-    C Command;
+    C Raw;
     bool Parse(std::istream &Input) { return true; }
     bool PostParse(MachOParser &Parser) { return true; }
   };
@@ -74,29 +83,44 @@ public:
 
   class MachOSection : public MachOThing<SectionCmd_t> {
   public:
-    using MachOThing<SectionCmd_t>::Command;
+    using MachOThing<SectionCmd_t>::Raw;
     std::string Name;
     std::string SegmentName;
 
   public:
     bool Parse(std::istream &Input) {
-      Name = std::string(Command.sectname, sizeof(Command.sectname));
-      SegmentName = std::string(Command.segname, sizeof(Command.segname));
+      Name = std::string(Raw.sectname);
+      SegmentName = std::string(Raw.segname);
       return true;
     }
   };
 
   class MachOSegment : public MachOThing<SegmentCmd_t> {
   public:
-    using MachOThing<SegmentCmd_t>::Command;
+    using MachOThing<SegmentCmd_t>::Raw;
     std::string Name;
+    uint32_t VirtualAddress;
+    uint32_t VirtualSize;
+    uint32_t FileOffset;
+    uint32_t FileSize;
+    // The actual address of this segment within an entity we are currently
+    // parsing. The variable will contain virtual address if we parse an image
+    // or file offset if we parse an object file.
+    uint32_t ActualAddress;
     std::vector<MachOSection> Sections;
 
   public:
     bool Parse(std::istream &Input) {
-      Name = std::string(Command.segname, sizeof(Command.segname));
+      Name = std::string(Raw.segname);
+      VirtualAddress = Raw.vmaddr;
+      VirtualSize = Raw.vmsize;
+      FileOffset = Raw.fileoff;
+      FileSize = Raw.filesize;
 
-      for (uint32_t s = 0; s < Command.nsects; ++s) {
+      // TODO Set this depending of flags to MachOParser::Parse
+      ActualAddress = VirtualAddress;
+
+      for (uint32_t s = 0; s < Raw.nsects; ++s) {
         READ_IMAGE_L(MachOSection, section);
         Sections.push_back(std::move(section));
       }
@@ -105,17 +129,53 @@ public:
     }
   };
 
+  class MachOSymbolTableEntry : public MachOThing<NList_t> {
+  public:
+    using MachOThing<NList_t>::Raw;
+    std::string Name;
+
+  public:
+    // Do string retrieval in post-parse call so we would not jump memory
+    // between symbols and strings often
+    bool PostParse(MachOParser &Parser) {
+      auto &Input = Parser.Input;
+      if (auto index = Raw.n_un.n_strx) {
+        // At this moment we a sure __LINKEDIT is present
+        Input.seekg(Parser.SymbolTable.StringTableOffset + index);
+        Name = ReadNTStringFromInput(Input);
+      }
+      return true;
+    }
+  };
+
   class MachOSymbolTable : public MachOThing<symtab_command> {
   public:
-    using MachOThing<symtab_command>::Command;
-    uint32_t NumberOfSymbolEntries;
+    using MachOThing<symtab_command>::Raw;
+    uint32_t StringTableOffset;
+    std::vector<std::shared_ptr<MachOSymbolTableEntry>> Symbols;
 
   public:
     bool PostParse(MachOParser &Parser) {
-      if (auto segment = Parser.GetSegmentByName(SEG_LINKEDIT)) {
-        PRINT_DEBUG("YAY");
+      // We know that symbol table records reside in __LINKEDIT segment, but
+      // the symoff is given relative to the object file and not segment
+      // itself. We have to subtract segment fileoff from this value to get
+      // segment relative offset.
+      if (auto seg = Parser.GetSegmentByName(SEG_LINKEDIT)) {
+        auto &Input = Parser.Input;
+        StringTableOffset = seg->ActualAddress + Raw.stroff - seg->FileOffset;
+        Input.seekg(seg->ActualAddress + Raw.symoff - seg->FileOffset);
+        for (uint32_t i = 0; i < Raw.nsyms; ++i) {
+          READ_IMAGE_L_S(MachOSymbolTableEntry, symbol);
+          Symbols.push_back(std::move(symbol));
+        }
+
+        for (auto symbol : Symbols) {
+          symbol->PostParse(Parser);
+        }
+
+        return true;
       }
-      return true;
+      return false;
     }
   };
 
@@ -126,11 +186,10 @@ public:
     std::string Name;
 
   public:
-    using MachOThing<dylib_command>::Command;
+    using MachOThing<dylib_command>::Raw;
     bool Parse(std::istream &Input) {
-      Input.seekg((size_t)Input.tellg() + Command.dylib.name.offset -
-                  sizeof(Command));
-      Name = ReadLCStringFromInput(Input);
+      Input.seekg((size_t)Input.tellg() + Raw.dylib.name.offset - sizeof(Raw));
+      Name = ReadNTStringFromInput(Input);
       return true;
     }
   };
@@ -140,11 +199,10 @@ public:
     std::string Name;
 
   public:
-    using MachOThing<dylinker_command>::Command;
+    using MachOThing<dylinker_command>::Raw;
     bool Parse(std::istream &Input) {
-      Input.seekg((size_t)Input.tellg() + Command.name.offset -
-                  sizeof(Command));
-      Name = ReadLCStringFromInput(Input);
+      Input.seekg((size_t)Input.tellg() + Raw.name.offset - sizeof(Raw));
+      Name = ReadNTStringFromInput(Input);
       return true;
     }
   };
@@ -155,10 +213,10 @@ private:
 
 public:
   MachOHeader Header;
-  std::vector<MachOSegment> Segments;
+  std::vector<std::shared_ptr<MachOSegment>> Segments;
   MachOSymbolTable SymbolTable;
   MachODySymbolTable DySymbolTable;
-  std::vector<MachODyLibrary> DyLibraries;
+  std::vector<std::shared_ptr<MachODyLibrary>> DyLibraries;
   MachODyLibrary DyLibraryId;
   MachODyLinker DyLinker;
   MachODyLinker DyLinkerId;
@@ -168,9 +226,9 @@ public:
       : Label(label), Input(input) {}
 
   std::shared_ptr<MachOSegment> GetSegmentByName(std::string name) {
-    for (auto &segment : Segments) {
-      if (segment.Name == name) {
-        return std::shared_ptr<MachOSegment>(&segment);
+    for (auto segment : Segments) {
+      if (segment->Name == name) {
+        return segment;
       }
     }
     return nullptr;
@@ -181,13 +239,13 @@ public:
 
     uint64_t mainptr = 0;
     Input.seekg(mainptr);
-    Input.read((char *)&Header.Command, sizeof(HeaderCmd_t));
+    Input.read((char *)&Header.Raw, sizeof(HeaderCmd_t));
     Header.Parse(Input);
     mainptr += sizeof(mach_header_64);
-    PRINT_DEBUG("HEADER magic: ", HEX(Header.Command.magic),
-                ", ncmds: ", Header.Command.ncmds);
+    PRINT_DEBUG("HEADER magic: ", HEX(Header.Raw.magic),
+                ", ncmds: ", Header.Raw.ncmds);
 
-    for (uint32_t i = 0; i < Header.Command.ncmds; ++i) {
+    for (uint32_t i = 0; i < Header.Raw.ncmds; ++i) {
       load_command loadcmd;
       Input.seekg(mainptr);
       Input.read((char *)&loadcmd, sizeof(load_command));
@@ -196,7 +254,7 @@ public:
       switch (loadcmd.cmd) {
 
       case lc_segment: {
-        READ_IMAGE_L(MachOSegment, segment);
+        READ_IMAGE_L_S(MachOSegment, segment);
         Segments.push_back(std::move(segment));
         break;
       }
@@ -219,7 +277,7 @@ public:
       case LC_LOAD_DYLIB:
       case LC_LOAD_WEAK_DYLIB:
       case LC_REEXPORT_DYLIB: {
-        READ_IMAGE_L(MachODyLibrary, dylibrary);
+        READ_IMAGE_L_S(MachODyLibrary, dylibrary);
         DyLibraries.push_back(std::move(dylibrary));
         break;
       }
