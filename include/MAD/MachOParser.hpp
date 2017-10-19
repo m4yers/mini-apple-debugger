@@ -36,31 +36,38 @@ private:
   using NList_t = std::conditional_t<std::is_same_v<T, MachOParser32_t>,
                                      struct nlist, struct nlist_64>;
 
-#define READ_IMAGE(type, name)                                                 \
-  auto name##cmd = &name.Raw;                                                  \
-  Input.read((char *)name##cmd, sizeof(name.Raw));                             \
-  name.Parse(Input);
-
-#define READ_IMAGE_L(type, name)                                               \
-  type name;                                                                   \
-  auto name##cmd = &name.Raw;                                                  \
-  Input.read((char *)name##cmd, sizeof(name.Raw));                             \
-  name.Parse(Input);
-
-#define READ_IMAGE_L_S(type, name)                                             \
-  auto name = std::make_shared<type>();                                        \
-  auto name##cmd = &name->Raw;                                                 \
-  Input.read((char *)name##cmd, sizeof(name->Raw));                            \
-  name->Parse(Input);
-
   static const bool Is32 = std::is_same_v<T, MachOParser32_t>;
   static const bool Is64 = std::is_same_v<T, MachOParser64_t>;
   static const uint32_t lc_segment = Is32 ? LC_SEGMENT : LC_SEGMENT_64;
 
 private:
+  template <typename S>
+  static bool ReadAThingFromInput(std::istream &Input,
+                                  std::shared_ptr<S> &Thing) {
+    Thing = std::make_shared<S>();
+    if (Input.read((char *)&Thing->Raw, sizeof(Thing->Raw))) {
+      Thing->Parse(Input);
+      return true;
+    }
+    return false;
+  }
+
+  template <typename S>
+  static bool
+  ReadAThingFromInputAndPush(std::istream &Input,
+                             std::vector<std::shared_ptr<S>> &Container) {
+    std::shared_ptr<S> Thing = std::make_shared<S>();
+    if (Input.read((char *)&Thing->Raw, sizeof(Thing->Raw))) {
+      Thing->Parse(Input);
+      Container.push_back(std::move(Thing));
+      return true;
+    }
+    return false;
+  }
+
   static std::string ReadNTStringFromInput(std::istream &Input) {
     std::string result;
-    while (true) {
+    while (Input.good()) {
       char ch;
       Input.read(&ch, 1);
       if (!ch) {
@@ -72,9 +79,9 @@ private:
   }
 
 public:
-  template <typename C> class MachOThing {
+  template <typename R> class MachOThing {
   public:
-    C Raw;
+    R Raw;
     bool Parse(std::istream &Input) { return true; }
     bool PostParse(MachOParser &Parser) { return true; }
   };
@@ -107,7 +114,7 @@ public:
     // parsing. The variable will contain virtual address if we parse an image
     // or file offset if we parse an object file.
     uint32_t ActualAddress;
-    std::vector<MachOSection> Sections;
+    std::vector<std::shared_ptr<MachOSection>> Sections;
 
   public:
     bool Parse(std::istream &Input) {
@@ -121,8 +128,7 @@ public:
       ActualAddress = VirtualAddress;
 
       for (uint32_t s = 0; s < Raw.nsects; ++s) {
-        READ_IMAGE_L(MachOSection, section);
-        Sections.push_back(std::move(section));
+        ReadAThingFromInputAndPush(Input, Sections);
       }
 
       return true;
@@ -139,11 +145,22 @@ public:
     // between symbols and strings often
     bool PostParse(MachOParser &Parser) {
       auto &Input = Parser.Input;
-      if (auto index = Raw.n_un.n_strx) {
-        // At this moment we a sure __LINKEDIT is present
-        Input.seekg(Parser.SymbolTable.StringTableOffset + index);
+      auto Index = Raw.n_un.n_strx;
+
+      // For whatever reason symbol table may contain invalid records with
+      // n_strx pointing way beyond its string table limits. Dynamic Loader
+      // just skipts those, so does this parser.
+      if (Index > Parser.SymbolTable->StringTableSize) {
+        return true;
+      }
+
+      // Zero string table offsets means there is no name for the thing
+      if (Index) {
+        // At this point we a sure __LINKEDIT is present
+        Input.seekg(Parser.SymbolTable->StringTableOffset + Index);
         Name = ReadNTStringFromInput(Input);
       }
+
       return true;
     }
   };
@@ -152,6 +169,7 @@ public:
   public:
     using MachOThing<symtab_command>::Raw;
     uint32_t StringTableOffset;
+    uint32_t StringTableSize;
     std::vector<std::shared_ptr<MachOSymbolTableEntry>> Symbols;
 
   public:
@@ -162,15 +180,20 @@ public:
       // segment relative offset.
       if (auto seg = Parser.GetSegmentByName(SEG_LINKEDIT)) {
         auto &Input = Parser.Input;
+
         StringTableOffset = seg->ActualAddress + Raw.stroff - seg->FileOffset;
+        StringTableSize = Raw.strsize;
+
         Input.seekg(seg->ActualAddress + Raw.symoff - seg->FileOffset);
-        for (uint32_t i = 0; i < Raw.nsyms; ++i) {
-          READ_IMAGE_L_S(MachOSymbolTableEntry, symbol);
-          Symbols.push_back(std::move(symbol));
+        for (uint32_t i = 0; i < Raw.nsyms && Input.good(); ++i) {
+          ReadAThingFromInputAndPush(Input, Symbols);
         }
 
         for (auto symbol : Symbols) {
           symbol->PostParse(Parser);
+          if (!Input.good()) {
+            return false;
+          }
         }
 
         return true;
@@ -212,14 +235,14 @@ private:
   std::istream &Input;
 
 public:
-  MachOHeader Header;
+  std::shared_ptr<MachOHeader> Header;
   std::vector<std::shared_ptr<MachOSegment>> Segments;
-  MachOSymbolTable SymbolTable;
-  MachODySymbolTable DySymbolTable;
+  std::shared_ptr<MachOSymbolTable> SymbolTable;
+  std::shared_ptr<MachODySymbolTable> DySymbolTable;
   std::vector<std::shared_ptr<MachODyLibrary>> DyLibraries;
-  MachODyLibrary DyLibraryId;
-  MachODyLinker DyLinker;
-  MachODyLinker DyLinkerId;
+  std::shared_ptr<MachODyLibrary> DyLibraryId;
+  std::shared_ptr<MachODyLinker> DyLinker;
+  std::shared_ptr<MachODyLinker> DyLinkerId;
 
 public:
   MachOParser(std::string label, std::istream &input)
@@ -239,13 +262,12 @@ public:
 
     uint64_t mainptr = 0;
     Input.seekg(mainptr);
-    Input.read((char *)&Header.Raw, sizeof(HeaderCmd_t));
-    Header.Parse(Input);
+    ReadAThingFromInput(Input, Header);
     mainptr += sizeof(mach_header_64);
-    PRINT_DEBUG("HEADER magic: ", HEX(Header.Raw.magic),
-                ", ncmds: ", Header.Raw.ncmds);
+    PRINT_DEBUG("HEADER magic: ", HEX(Header->Raw.magic),
+                ", ncmds: ", Header->Raw.ncmds);
 
-    for (uint32_t i = 0; i < Header.Raw.ncmds; ++i) {
+    for (uint32_t i = 0; i < Header->Raw.ncmds; ++i) {
       load_command loadcmd;
       Input.seekg(mainptr);
       Input.read((char *)&loadcmd, sizeof(load_command));
@@ -254,41 +276,39 @@ public:
       switch (loadcmd.cmd) {
 
       case lc_segment: {
-        READ_IMAGE_L_S(MachOSegment, segment);
-        Segments.push_back(std::move(segment));
+        ReadAThingFromInputAndPush(Input, Segments);
         break;
       }
 
       case LC_SYMTAB: {
-        READ_IMAGE(MachOSymbolTable, SymbolTable);
+        ReadAThingFromInput(Input, SymbolTable);
         break;
       }
 
       case LC_DYSYMTAB: {
-        READ_IMAGE(MachODySymbolTable, DySymbolTable);
+        ReadAThingFromInput(Input, DySymbolTable);
         break;
       }
 
       case LC_ID_DYLIB: {
-        READ_IMAGE_L(MachODyLibrary, DyLibraryId);
+        ReadAThingFromInput(Input, DyLibraryId);
         break;
       }
 
       case LC_LOAD_DYLIB:
       case LC_LOAD_WEAK_DYLIB:
       case LC_REEXPORT_DYLIB: {
-        READ_IMAGE_L_S(MachODyLibrary, dylibrary);
-        DyLibraries.push_back(std::move(dylibrary));
+        ReadAThingFromInputAndPush(Input, DyLibraries);
         break;
       }
 
       case LC_ID_DYLINKER: {
-        READ_IMAGE_L(MachODyLinker, DyLinkerId);
+        ReadAThingFromInput(Input, DyLinkerId);
         break;
       }
 
       case LC_LOAD_DYLINKER: {
-        READ_IMAGE_L(MachODyLinker, DyLinker);
+        ReadAThingFromInput(Input, DyLinker);
         break;
       }
       default: {
@@ -309,7 +329,9 @@ public:
   }
 
   bool PostParse() {
-    SymbolTable.PostParse(*this);
+    if (SymbolTable) {
+      SymbolTable->PostParse(*this);
+    }
     return true;
   }
 };
