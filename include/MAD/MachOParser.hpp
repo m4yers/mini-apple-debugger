@@ -4,6 +4,7 @@
 #include <cassert>
 #include <istream>
 #include <map>
+#include <memory>
 #include <string>
 #include <type_traits>
 #include <unistd.h>
@@ -32,16 +33,27 @@ private:
   using SectionCmd_t = std::conditional_t<std::is_same_v<T, MachOParser32_t>,
                                           section, section_64>;
 
+#define READ_IMAGE(type, name)                                                 \
+  auto name##cmd = &name.Command;                                              \
+  Input.read((char *)name##cmd, sizeof(name.Command));                         \
+  name.Parse(Input);
+
+#define READ_IMAGE_L(type, name)                                               \
+  type name;                                                                   \
+  auto name##cmd = &name.Command;                                              \
+  Input.read((char *)name##cmd, sizeof(name.Command));                         \
+  name.Parse(Input);
+
   static const bool Is32 = std::is_same_v<T, MachOParser32_t>;
   static const bool Is64 = std::is_same_v<T, MachOParser64_t>;
   static const uint32_t lc_segment = Is32 ? LC_SEGMENT : LC_SEGMENT_64;
 
 private:
-  static std::string ReadLCStringFromInput(std::istream &input) {
+  static std::string ReadLCStringFromInput(std::istream &Input) {
     std::string result;
     while (true) {
       char ch;
-      input.read(&ch, 1);
+      Input.read(&ch, 1);
       if (!ch) {
         return result;
       }
@@ -51,100 +63,90 @@ private:
   }
 
 public:
-  class MachOHeader {
-    friend MachOParser;
-    HeaderCmd_t Header;
-
-  private:
-    MachOHeader() {}
-    bool Init(std::istream &input) { return true; }
-
+  template <typename C> class MachOThing {
   public:
+    C Command;
+    bool Parse(std::istream &Input) { return true; }
+    bool PostParse(MachOParser &Parser) { return true; }
   };
 
-  class MachOSection {
-    friend MachOParser;
-    SectionCmd_t Command;
+  class MachOHeader : public MachOThing<HeaderCmd_t> {};
 
-  private:
-    MachOSection() = default;
-    bool Init(std::istream &input) {
+  class MachOSection : public MachOThing<SectionCmd_t> {
+  public:
+    using MachOThing<SectionCmd_t>::Command;
+    std::string Name;
+    std::string SegmentName;
+
+  public:
+    bool Parse(std::istream &Input) {
       Name = std::string(Command.sectname, sizeof(Command.sectname));
       SegmentName = std::string(Command.segname, sizeof(Command.segname));
       return true;
     }
-
-  public:
-    std::string Name;
-    std::string SegmentName;
   };
 
-  class MachOSegment {
-    friend MachOParser;
-    SegmentCmd_t Command;
-
-  private:
-    MachOSegment() = default;
-    bool Init(std::istream &input) {
-      Name = std::string(Command.segname, sizeof(Command.segname));
-      return true;
-    }
-
+  class MachOSegment : public MachOThing<SegmentCmd_t> {
   public:
+    using MachOThing<SegmentCmd_t>::Command;
     std::string Name;
     std::vector<MachOSection> Sections;
-  };
-
-  class MachOSymbolTable {
-    friend MachOParser;
-    symtab_command Command;
-
-  private:
-    MachOSymbolTable() = default;
-    bool Init(std::istream &input) { return true; }
-  };
-
-  class MachODySymbolTable {
-    friend MachOParser;
-    dysymtab_command Command;
-
-  private:
-    MachODySymbolTable() = default;
-    bool Init(std::istream &input) { return true; }
-  };
-
-  class MachODyLibrary {
-    friend MachOParser;
-    dylib_command Command;
-
-  private:
-    MachODyLibrary() = default;
-    bool Init(std::istream &input) {
-      input.seekg((size_t)input.tellg() + Command.dylib.name.offset -
-                  sizeof(Command));
-      Name = ReadLCStringFromInput(input);
-      return true;
-    }
 
   public:
-    std::string Name;
-  };
+    bool Parse(std::istream &Input) {
+      Name = std::string(Command.segname, sizeof(Command.segname));
 
-  class MachODyLinker {
-    friend MachOParser;
-    dylinker_command Command;
+      for (uint32_t s = 0; s < Command.nsects; ++s) {
+        READ_IMAGE_L(MachOSection, section);
+        Sections.push_back(std::move(section));
+      }
 
-  private:
-    MachODyLinker() = default;
-    bool Init(std::istream &input) {
-      input.seekg((size_t)input.tellg() + Command.name.offset -
-                  sizeof(Command));
-      Name = ReadLCStringFromInput(input);
       return true;
     }
+  };
+
+  class MachOSymbolTable : public MachOThing<symtab_command> {
+  public:
+    using MachOThing<symtab_command>::Command;
+    uint32_t NumberOfSymbolEntries;
 
   public:
+    bool PostParse(MachOParser &Parser) {
+      if (auto segment = Parser.GetSegmentByName(SEG_LINKEDIT)) {
+        PRINT_DEBUG("YAY");
+      }
+      return true;
+    }
+  };
+
+  class MachODySymbolTable : public MachOThing<dysymtab_command> {};
+
+  class MachODyLibrary : public MachOThing<dylib_command> {
+  public:
     std::string Name;
+
+  public:
+    using MachOThing<dylib_command>::Command;
+    bool Parse(std::istream &Input) {
+      Input.seekg((size_t)Input.tellg() + Command.dylib.name.offset -
+                  sizeof(Command));
+      Name = ReadLCStringFromInput(Input);
+      return true;
+    }
+  };
+
+  class MachODyLinker : public MachOThing<dylinker_command> {
+  public:
+    std::string Name;
+
+  public:
+    using MachOThing<dylinker_command>::Command;
+    bool Parse(std::istream &Input) {
+      Input.seekg((size_t)Input.tellg() + Command.name.offset -
+                  sizeof(Command));
+      Name = ReadLCStringFromInput(Input);
+      return true;
+    }
   };
 
 private:
@@ -157,34 +159,35 @@ public:
   MachOSymbolTable SymbolTable;
   MachODySymbolTable DySymbolTable;
   std::vector<MachODyLibrary> DyLibraries;
-  MachODyLibrary DyId;
+  MachODyLibrary DyLibraryId;
   MachODyLinker DyLinker;
-
-#define READ_IMAGE(type, name)                                                 \
-  auto name##cmd = &name.Command;                                              \
-  Input.read((char *)name##cmd, sizeof(name.Command));                         \
-  name.Init(this->Input);
-
-#define READ_IMAGE_L(type, name)                                               \
-  type name;                                                                   \
-  auto name##cmd = &name.Command;                                              \
-  Input.read((char *)name##cmd, sizeof(name.Command));                         \
-  name.Init(this->Input);
+  MachODyLinker DyLinkerId;
 
 public:
   MachOParser(std::string label, std::istream &input)
       : Label(label), Input(input) {}
+
+  std::shared_ptr<MachOSegment> GetSegmentByName(std::string name) {
+    for (auto &segment : Segments) {
+      if (segment.Name == name) {
+        return std::shared_ptr<MachOSegment>(&segment);
+      }
+    }
+    return nullptr;
+  }
+
   bool Parse() {
     PRINT_DEBUG("PARSING ", Label, " ...");
 
     uint64_t mainptr = 0;
     Input.seekg(mainptr);
-    Input.read((char *)&Header.Header, sizeof(HeaderCmd_t));
+    Input.read((char *)&Header.Command, sizeof(HeaderCmd_t));
+    Header.Parse(Input);
     mainptr += sizeof(mach_header_64);
-    PRINT_DEBUG("HEADER magic: ", HEX(Header.Header.magic),
-                ", ncmds: ", Header.Header.ncmds);
+    PRINT_DEBUG("HEADER magic: ", HEX(Header.Command.magic),
+                ", ncmds: ", Header.Command.ncmds);
 
-    for (uint32_t i = 0; i < Header.Header.ncmds; ++i) {
+    for (uint32_t i = 0; i < Header.Command.ncmds; ++i) {
       load_command loadcmd;
       Input.seekg(mainptr);
       Input.read((char *)&loadcmd, sizeof(load_command));
@@ -194,15 +197,6 @@ public:
 
       case lc_segment: {
         READ_IMAGE_L(MachOSegment, segment);
-
-        uint64_t secptr = mainptr + sizeof(SegmentCmd_t);
-
-        for (uint32_t s = 0; s < segmentcmd->nsects; ++s) {
-          Input.seekg(secptr + s * sizeof(SectionCmd_t));
-          READ_IMAGE_L(MachOSection, section);
-          segment.Sections.push_back(std::move(section));
-        }
-
         Segments.push_back(std::move(segment));
         break;
       }
@@ -218,7 +212,7 @@ public:
       }
 
       case LC_ID_DYLIB: {
-        READ_IMAGE_L(MachODyLibrary, DyId);
+        READ_IMAGE_L(MachODyLibrary, DyLibraryId);
         break;
       }
 
@@ -230,8 +224,17 @@ public:
         break;
       }
 
+      case LC_ID_DYLINKER: {
+        READ_IMAGE_L(MachODyLinker, DyLinkerId);
+        break;
+      }
+
       case LC_LOAD_DYLINKER: {
         READ_IMAGE_L(MachODyLinker, DyLinker);
+        break;
+      }
+      default: {
+        PRINT_DEBUG("UNKNOWN LOAD COMMAND ", loadcmd.cmd);
         break;
       }
       }
@@ -244,6 +247,11 @@ public:
       mainptr += loadcmd.cmdsize;
     }
 
+    return PostParse();
+  }
+
+  bool PostParse() {
+    SymbolTable.PostParse(*this);
     return true;
   }
 };
