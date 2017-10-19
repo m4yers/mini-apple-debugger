@@ -27,11 +27,11 @@ extern OutPrinter sout;
 
 extern std::string kern_return_to_string(kern_return_t kern_return);
 
-#ifndef NDEBUG
-#define NDEBUG 0
+#ifndef ENABLE_DEBUG
+#define ENABLE_DEBUG 0
 #endif
 
-#if NDEBUG == 0
+#if ENABLE_DEBUG == 0
 #define DEBUG(x)                                                               \
   { x; }
 #define PRINT_DEBUG(...)                                                       \

@@ -281,6 +281,7 @@ public:
 
       case LC_SYMTAB: {
         ReadAThingFromInput(Input, SymbolTable);
+        assert(SymbolTable);
         break;
       }
 
@@ -332,6 +333,7 @@ private:
     if (SymbolTable) {
       SymbolTable->PostParse(*this);
     }
+
     return true;
   }
 };
