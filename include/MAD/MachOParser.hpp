@@ -13,6 +13,7 @@
 #include <dlfcn.h>
 #include <mach-o/loader.h>
 #include <mach-o/nlist.h>
+#include <mach-o/stab.h>
 #include <uuid/uuid.h>
 
 #include "MAD/Debug.hpp"
@@ -84,7 +85,18 @@ public:
     bool PostParse(MachOParser &Parser) { return true; }
   };
 
-  class MachOHeader : public MachOThing<HeaderCmd_t> {};
+  class MachOHeader : public MachOThing<HeaderCmd_t> {
+  public:
+    using MachOThing<HeaderCmd_t>::Raw;
+    bool IsTwoLevel;
+    bool IsTypeObject;
+    bool Parse(std::istream &Input) {
+      IsTypeObject = Raw.filetype == MH_OBJECT;
+
+      IsTwoLevel = Raw.flags & MH_TWOLEVEL;
+      return true;
+    }
+  };
 
   class MachOSection : public MachOThing<SectionCmd_t> {
   public:
@@ -134,28 +146,167 @@ public:
   };
 
   class MachOSymbolTableEntry : public MachOThing<NList_t> {
+
   public:
     using MachOThing<NList_t>::Raw;
     std::string Name;
 
+    // n_type::N_STAB
+    uint8_t StubType;
+    bool IsStub;
+
+    // n_type::N_PEXT
+    bool IsPrivateExternal;
+
+    // n_type::N_TYPE
+    bool IsUndefined;
+    bool IsAbsolute;
+    bool IsDefined;
+    bool IsPrebound;
+    bool IsIndirect;
+
+    // n_type::N_EXT
+    bool IsExtenal;
+
+    // n_sect
+    uint8_t SectionNumber;
+
+    // n_desc
+    uint32_t LineNumber;
+    uint32_t NestingLevel;
+    uint32_t Alignment;
+    // REFERENCE_FLAG_* flags
+    bool IsReferenceUndefinedNonLazy;
+    bool IsReferenceUndefinedLazy;
+    bool IsReferenceDefined;
+    bool IsReferencePrivateDefined;
+    bool IsReferencePrivateUndefinedNonLazy;
+    bool IsReferencePrivateUndefinedLazy;
+    // Additional flags
+    bool IsReferenceDynamically;
+    bool IsNoDeadStrip;
+    bool IsDescDiscarded;
+    bool IsWeakReference;
+    bool IsWeakDefinition;
+    bool IsReferenceToWeak;
+    bool IsArmThumbDefinition;
+    bool IsSymbolResolver;
+    bool IsAltEntry;
+    //
+    uint32_t LibraryOrdinal;
+
+    // n_value
+    uint64_t Value;
+
+  private:
+    void ParseDesc(MachOParser &Parser) {
+      // Common symbols have N_TYPE = U_UNDF | U_EXT
+      if (IsUndefined && IsExtenal) {
+        Alignment = GET_COMM_ALIGN(Raw.n_desc);
+      }
+
+      auto ReferenceType = Raw.n_desc & REFERENCE_TYPE;
+      IsReferenceUndefinedNonLazy =
+          ReferenceType == REFERENCE_FLAG_UNDEFINED_NON_LAZY;
+      IsReferenceUndefinedLazy = ReferenceType == REFERENCE_FLAG_UNDEFINED_LAZY;
+      IsReferenceDefined = ReferenceType == REFERENCE_FLAG_DEFINED;
+      IsReferencePrivateDefined =
+          ReferenceType == REFERENCE_FLAG_PRIVATE_DEFINED;
+      IsReferencePrivateUndefinedNonLazy =
+          ReferenceType == REFERENCE_FLAG_PRIVATE_UNDEFINED_NON_LAZY;
+      IsReferencePrivateUndefinedLazy =
+          ReferenceType == REFERENCE_FLAG_PRIVATE_UNDEFINED_LAZY;
+
+      IsReferenceDynamically = Raw.n_desc & REFERENCED_DYNAMICALLY;
+
+      if (Parser.Header->IsTypeObject) {
+        IsNoDeadStrip = Raw.n_desc & N_NO_DEAD_STRIP;
+        IsSymbolResolver = Raw.n_desc & N_SYMBOL_RESOLVER;
+      }
+
+      if (Parser.IsImage) {
+        IsDescDiscarded = Raw.n_desc & N_DESC_DISCARDED;
+      }
+
+      IsWeakReference = Raw.n_desc & N_WEAK_REF;
+      IsWeakDefinition = Raw.n_desc & N_WEAK_DEF;
+      IsReferenceToWeak = Raw.n_desc & N_REF_TO_WEAK;
+      IsArmThumbDefinition = Raw.n_desc & N_ARM_THUMB_DEF;
+      IsAltEntry = Raw.n_desc & N_ALT_ENTRY;
+
+      if (Parser.Header->IsTwoLevel) {
+        LibraryOrdinal = GET_LIBRARY_ORDINAL(Raw.n_desc);
+      }
+    }
+
+    void ParseStub(MachOParser &Parser) {
+      StubType = Raw.n_type;
+
+      switch (StubType) {
+      case N_FUN:
+      case N_SLINE:
+      case N_ENTRY:
+        LineNumber = Raw.n_desc;
+        break;
+      case N_LBRAC:
+      case N_RBRAC:
+        NestingLevel = Raw.n_desc;
+        break;
+      case N_GSYM:
+      case N_STSYM:
+      case N_LCSYM:
+      case N_RSYM:
+      case N_SSYM:
+      case N_LSYM:
+      case N_PSYM:
+        ParseDesc(Parser);
+        break;
+      }
+    }
+
   public:
-    // Do string retrieval in post-parse call so we would not jump memory
-    // between symbols and strings often
+    MachOSymbolTableEntry()
+        : StubType(0), SectionNumber(0), LineNumber(0), NestingLevel(0),
+          Value(0) {}
+
+    // Do processing and specifically string retrieval in post-parse call so we
+    // would not jump memory between symbols and strings often
     bool PostParse(MachOParser &Parser) {
       auto &Input = Parser.Input;
-      auto Index = Raw.n_un.n_strx;
+      auto StringTableOffset = Parser.SymbolTable->StringTableOffset;
+      auto StringTableSize = Parser.SymbolTable->StringTableSize;
+
+      SectionNumber = Raw.n_sect;
+      Value = Raw.n_value;
+
+      IsStub = Raw.n_type & N_STAB;
+      IsPrivateExternal = Raw.n_type & N_PEXT;
+      IsExtenal = Raw.n_type & N_EXT;
+
+      auto NType = Raw.n_type & N_TYPE;
+      IsUndefined = NType == N_UNDF;
+      IsAbsolute = NType == N_ABS;
+      IsDefined = NType == N_SECT;
+      IsPrebound = NType == N_PBUD;
+      IsIndirect = NType == N_INDR;
+
+      if (IsStub) {
+        ParseStub(Parser);
+      } else {
+        ParseDesc(Parser);
+      }
 
       // For whatever reason symbol table may contain invalid records with
       // n_strx pointing way beyond its string table limits. Dynamic Loader
-      // just skipts those, so does this parser.
-      if (Index > Parser.SymbolTable->StringTableSize) {
+      // just skips those, so does this parser.
+      auto Index = Raw.n_un.n_strx;
+      if (Index > StringTableSize) {
         return true;
       }
 
       // Zero string table offsets means there is no name for the thing
       if (Index) {
-        // At this point we a sure __LINKEDIT is present
-        Input.seekg(Parser.SymbolTable->StringTableOffset + Index);
+        Input.seekg(StringTableOffset + Index);
         Name = ReadNTStringFromInput(Input);
       }
 
@@ -232,6 +383,8 @@ private:
   std::string Label;
   std::istream &Input;
   uint32_t Flags;
+  bool IsImage;
+  bool IsFile;
 
 public:
   std::shared_ptr<MachOHeader> Header;
@@ -245,7 +398,10 @@ public:
 
 public:
   MachOParser(std::string Label, std::istream &Input, uint32_t Flags)
-      : Label(Label), Input(Input), Flags(Flags) {}
+      : Label(Label), Input(Input), Flags(Flags) {
+    IsImage = Flags == MO_PARSE_IMAGE;
+    IsFile = Flags == MO_PARSE_FILE;
+  }
 
   std::shared_ptr<MachOSegment> GetSegmentByName(std::string name) {
     for (auto segment : Segments) {
