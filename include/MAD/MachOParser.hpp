@@ -88,10 +88,36 @@ public:
   class MachOHeader : public MachOThing<HeaderCmd_t> {
   public:
     using MachOThing<HeaderCmd_t>::Raw;
-    bool IsTwoLevel;
+    uint32_t Filetype;
     bool IsTypeObject;
+    bool IsExecute;
+    bool IsFVMLibrary;
+    bool IsCore;
+    bool IsPreload;
+    bool IsDynamicLibrary;
+    bool IsDynamicLinker;
+    bool IsBundle;
+    bool IsDynamicLibraryStub;
+    bool IsDebugSymbols;
+    bool IsKernelExtensionBundle;
+
+    // flags
+    bool IsTwoLevel;
+
+  public:
     bool Parse(std::istream &Input) {
-      IsTypeObject = Raw.filetype == MH_OBJECT;
+      Filetype = Raw.filetype;
+      IsTypeObject = Filetype == MH_OBJECT;
+      IsExecute = Filetype == MH_EXECUTE;
+      IsFVMLibrary = Filetype == MH_FVMLIB;
+      IsCore = Filetype == MH_CORE;
+      IsPreload = Filetype == MH_PRELOAD;
+      IsDynamicLibrary = Filetype == MH_DYLIB;
+      IsDynamicLinker = Filetype == MH_DYLINKER;
+      IsBundle = Filetype == MH_BUNDLE;
+      IsDynamicLibraryStub = Filetype == MH_DYLIB_STUB;
+      IsDebugSymbols = Filetype == MH_DSYM;
+      IsKernelExtensionBundle = Filetype == MH_KEXT_BUNDLE;
 
       IsTwoLevel = Raw.flags & MH_TWOLEVEL;
       return true;
@@ -142,6 +168,15 @@ public:
       }
 
       return true;
+    }
+
+    std::shared_ptr<MachOSection> GetSectionByName(std::string Name) {
+      for (auto &Section : Sections) {
+        if (Section.Name == Name) {
+          return Section;
+        }
+      }
+      return nullptr;
     }
   };
 
@@ -265,6 +300,7 @@ public:
     }
 
   public:
+    // TODO init all the fields
     MachOSymbolTableEntry()
         : StubType(0), SectionNumber(0), LineNumber(0), NestingLevel(0),
           Value(0) {}
@@ -389,6 +425,7 @@ private:
 public:
   std::shared_ptr<MachOHeader> Header;
   std::vector<std::shared_ptr<MachOSegment>> Segments;
+  std::vector<std::shared_ptr<MachOSection>> Sections;
   std::shared_ptr<MachOSymbolTable> SymbolTable;
   std::shared_ptr<MachODySymbolTable> DySymbolTable;
   std::vector<std::shared_ptr<MachODyLibrary>> DyLibraries;
@@ -403,11 +440,27 @@ public:
     IsFile = Flags == MO_PARSE_FILE;
   }
 
-  std::shared_ptr<MachOSegment> GetSegmentByName(std::string name) {
-    for (auto segment : Segments) {
-      if (segment->Name == name) {
-        return segment;
+  std::shared_ptr<MachOSegment> GetSegmentByName(std::string Name) {
+    for (auto &Segment : Segments) {
+      if (Segment->Name == Name) {
+        return Segment;
       }
+    }
+    return nullptr;
+  }
+
+  std::shared_ptr<MachOSegment> GetSegmentByIndex(unsigned Index) {
+    assert(Index && "Index must not be zero");
+    if (Segments.size() >= Index) {
+      return Segments.at(Index - 1);
+    }
+    return nullptr;
+  }
+
+  std::shared_ptr<MachOSection> GetSectionByIndex(unsigned Index) {
+    assert(Index && "Index must not be zero");
+    if (Sections.size() >= Index) {
+      return Sections.at(Index - 1);
     }
     return nullptr;
   }
@@ -488,6 +541,13 @@ private:
   bool PostParse() {
     if (SymbolTable) {
       SymbolTable->PostParse(*this);
+    }
+
+    // Push every segment's sections into Sections vector so they could be
+    // retrieved via appearance index
+    for (auto &Segment : Segments) {
+      Sections.insert(Sections.end(), Segment->Sections.begin(),
+                      Segment->Sections.end());
     }
 
     return true;

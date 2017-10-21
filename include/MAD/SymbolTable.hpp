@@ -14,23 +14,26 @@ template <typename T, typename = IsMachSystem_t<T>> class SymbolTable {
 
 private:
   MachOParser<T> &Parser;
-  std::map<std::string, std::shared_ptr<SymbolEntry_t>> NameToSymbol;
+  std::map<std::string, std::shared_ptr<SymbolEntry_t>> SymbolsByName;
 
 public:
   SymbolTable(MachOParser<T> &Parser) : Parser(Parser) {}
 
   bool Init() {
     for (auto Entry : Parser.SymbolTable->Symbols) {
-      NameToSymbol.insert({Entry->Name, Entry});
+      SymbolsByName.insert({Entry->Name, Entry});
     }
     return true;
   }
 
-  auto GetSymbols() { return Parser.SymbolTable->Symbols; }
+  auto GetSymbols() {
+    assert(Parser.Header);
+    return Parser.SymbolTable->Symbols;
+  }
 
-  auto GetSymbolByName(std::string Name) {
-    if (NameToSymbol.count(Name)) {
-      return NameToSymbol.at(Name);
+  std::shared_ptr<SymbolEntry_t> GetSymbolByName(std::string Name) {
+    if (SymbolsByName.count(Name)) {
+      return SymbolsByName.at(Name);
     }
     return nullptr;
   }
