@@ -15,44 +15,15 @@ bool MachTask::Attach(pid_t pid) {
     PRINT_KERN_ERROR(kern);
     return false;
   }
-  return true;
+
+  return Memory.Init(Port);
 }
 
 bool MachTask::Detach() {
   assert(Port);
   PID = {};
+  Memory.Fini();
   return true;
-}
-
-vm_size_t MachTask::GetPageSize() {
-  vm_size_t size;
-  if (auto kern = host_page_size(mach_host_self(), &size)) {
-    PRINT_KERN_ERROR(kern);
-    return 0;
-  }
-  return size;
-}
-
-vm_size_t MachTask::ReadMemory(vm_address_t address, vm_size_t size,
-                               void *data) {
-  assert(Port);
-  vm_size_t count;
-  if (auto kern =
-          vm_read_overwrite(Port, address, size, (vm_address_t)data, &count)) {
-    PRINT_KERN_ERROR_V(kern, " at ", HEX(address), " reading ", size, " bytes");
-    return 0;
-  }
-  return count;
-}
-
-vm_size_t MachTask::WriteMemory(vm_address_t address, vm_offset_t data,
-                                mach_msg_type_number_t count) {
-  assert(Port);
-  if (auto kern = vm_write(Port, address, data, count)) {
-    PRINT_KERN_ERROR_V(kern, " at ", HEX(address), " writing ", count, " bytes");
-    return 0;
-  }
-  return count;
 }
 
 bool MachTask::Suspend() {
@@ -97,7 +68,6 @@ Optional<std::vector<MachThread>> MachTask::GetThreads(bool DoSuspend) {
   }
 
   std::vector<MachThread> result;
-  result.reserve(thread_count);
   for (mach_msg_type_number_t i = 0; i < thread_count; ++i) {
     result.emplace_back(Port, thread_list[i]);
   }

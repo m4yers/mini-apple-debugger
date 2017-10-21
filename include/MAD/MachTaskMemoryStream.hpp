@@ -8,6 +8,7 @@
 #include <streambuf>
 
 // MAD
+#include <MAD/MachMemory.hpp>
 #include <MAD/MachTask.hpp>
 
 using namespace mad;
@@ -15,10 +16,10 @@ using namespace mad;
 #define MTS_INVALID_PAGE ~0
 
 // TODO: Allow to choose buffer size, e.g. half-page-size, quater-page-size etc
-// up to pointer size, because it is the minimum we can read from task memory
+// up to pointer size, because it is the minimum we can read from Task memory
 // TODO : Add ostream part
 class MachTaskMemoryStreamBuf : public std::streambuf {
-  MachTask &Task;
+  MachMemory &Memory;
   // In-memory start of this stream
   vm_address_t Base;
   // In-memory address, i.e. Base + Position
@@ -38,8 +39,7 @@ private:
         // Address does not fall into the buffered page
         (Address < PageStart || Address >= PageStart + PageSize)) {
       PageStart = Address & PageMask;
-      return Task.ReadMemory(PageStart, PageSize, PageBuffer.data()) ==
-             PageSize;
+      return Memory.Read(PageStart, PageSize, PageBuffer.data()) == PageSize;
     }
     return true;
   }
@@ -55,14 +55,14 @@ private:
   }
 
 public:
-  MachTaskMemoryStreamBuf(MachTask &task, vm_address_t base)
-      : Task(task), Base(base), Address(Base), Position(0),
-        PageSize(Task.GetPageSize()), PageMask(~(PageSize - 1)),
+  MachTaskMemoryStreamBuf(MachMemory &Memory, vm_address_t Base)
+      : Memory(Memory), Base(Base), Address(Base), Position(0),
+        PageSize(Memory.GetPageSize()), PageMask(~(PageSize - 1)),
         PageStart(MTS_INVALID_PAGE), PageBuffer(PageSize, 0) {}
 
-  //-----------------------------------------------------------------------------
+  //----------------------------------------------------------------------------
   // Positioning
-  //-----------------------------------------------------------------------------
+  //----------------------------------------------------------------------------
   pos_type seekpos(pos_type pos,
                    std::ios_base::openmode which = std::ios_base::in |
                                                    std::ios_base::out) {
@@ -86,9 +86,9 @@ public:
     return Position;
   }
 
-  //-----------------------------------------------------------------------------
+  //----------------------------------------------------------------------------
   // Get Area
-  //-----------------------------------------------------------------------------
+  //----------------------------------------------------------------------------
   int_type underflow() {
     if (!UpdateBufferIfNeeded()) {
       return traits_type::eof();
@@ -152,9 +152,9 @@ public:
     return Written;
   }
 
-  //-----------------------------------------------------------------------------
+  //----------------------------------------------------------------------------
   // Putback
-  //-----------------------------------------------------------------------------
+  //----------------------------------------------------------------------------
   int_type pbackfail(int_type ch) {
     if (Address <= PageSize) {
       return traits_type::eof();
@@ -172,8 +172,10 @@ public:
 class MachTaskMemoryStream : public std::iostream {
 public:
   MachTaskMemoryStreamBuf Buffer;
-  MachTaskMemoryStream(MachTask &Task, vm_address_t Address)
-      : std::iostream(&Buffer), Buffer(Task, Address) {}
+
+public:
+  MachTaskMemoryStream(MachMemory &Memory, vm_address_t Address)
+      : std::iostream(&Buffer), Buffer(Memory, Address) {}
 };
 
 #endif /* end of include guard: MACHTASKMEMORYSTREAM_HPP_8CBVRMN6 */

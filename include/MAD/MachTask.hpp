@@ -13,6 +13,7 @@
 // MAD
 #include "MAD/Debug.hpp"
 #include "MAD/MachThread.hpp"
+#include <MAD/MachMemory.hpp>
 
 template <typename T> using Optional = std::experimental::optional<T>;
 
@@ -20,10 +21,13 @@ namespace mad {
 class MachTask {
   pid_t PID;
   mach_port_t Port;
+  MachMemory Memory;
   bool Suspended;
 
 public:
   MachTask() : PID(0), Port(0), Suspended(false){};
+  MachTask(const MachTask &) = delete;
+  MachTask operator=(const MachTask &) = delete;
 
   bool Attach(pid_t PID);
   bool Detach();
@@ -32,14 +36,10 @@ public:
 
   mach_port_t GetPort() { return Port; }
 
-  vm_size_t GetPageSize();
-  vm_size_t ReadMemory(vm_address_t address, vm_size_t size, void *data);
-  vm_size_t WriteMemory(vm_address_t address, vm_offset_t data,
-                        mach_msg_type_number_t count);
-
   bool Suspend();
   bool Resume();
 
+  auto &GetMemory() { return Memory; }
   Optional<std::vector<MachThread>> GetThreads(bool Suspend = false);
 };
 } // namespace mad
