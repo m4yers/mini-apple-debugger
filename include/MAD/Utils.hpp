@@ -22,11 +22,12 @@ public:
 // Flag
 //-----------------------------------------------------------------------------
 template <typename T, template <typename> class Policy, T Base> class Flag {
-  bool Value;
+  bool Result;
 
 public:
-  Flag() : Value(false) {}
-  explicit operator bool() const { return Value; }
+  Flag() : Result(false) {}
+  Flag(T Value) : Result(Policy<T>::IsTrue(Base, Value)) {}
+  explicit operator bool() const { return Result; }
 
   Flag &operator=(bool Value) {
     this->Value = Value;
@@ -53,9 +54,9 @@ template <unsigned Value> using FlagAnd = Flag<unsigned, FlagPolicyAnd, Value>;
 template <typename T, template <typename> class Policy, T Base>
 class BoundFlag {
   T &Field;
-  bool Value;
 
 public:
+  BoundFlag() = delete;
   BoundFlag(T &Field) : Field(Field) {}
   explicit operator bool() const { return Policy<T>::IsTrue(Base, Field); }
 };

@@ -134,8 +134,6 @@ public:
   public:
     bool Parse(std::istream &Input) {
       Filetype = Raw.filetype;
-
-      PRINT_DEBUG("ISPIE: ", IsPIE);
       return true;
     }
   };
@@ -146,7 +144,12 @@ public:
     std::string Name;
     std::string SegmentName;
 
+    decltype(Raw.addr) VirtualAddress;
+    decltype(Raw.size) VirtualSize;
+    decltype(Raw.offset) FileOffset;
+
   public:
+    void ApplyVirtualMemorySlide(uint64_t Value) { VirtualAddress += Value; }
     bool Parse(std::istream &Input) {
       Name = std::string(Raw.sectname);
       SegmentName = std::string(Raw.segname);
@@ -157,27 +160,27 @@ public:
   class MachOSegment : public MachOThing<SegmentCmd_t> {
   public:
     using MachOThing<SegmentCmd_t>::Raw;
-    std::string Name;
-    uint32_t VirtualAddress;
-    uint32_t VirtualSize;
-    uint32_t FileOffset;
-    uint32_t FileSize;
-    // The actual address of this segment within an entity we are currently
-    // parsing. The variable will contain virtual address if we parse an image
-    // or file offset if we parse an object file.
-    uint32_t ActualAddress;
     std::vector<std::shared_ptr<MachOSection>> Sections;
+    std::string Name;
+
+    decltype(Raw.vmaddr) VirtualAddress;
+    decltype(Raw.vmsize) VirtualSize;
+    decltype(Raw.fileoff) FileOffset;
+    decltype(Raw.filesize) FileSize;
 
   public:
+    void ApplyVirtualMemorySlide(uint64_t Value) {
+      VirtualAddress += Value;
+      for (auto &Section : Sections) {
+        Section->ApplyVirtualMemorySlide(Value);
+      }
+    }
     bool Parse(std::istream &Input) {
       Name = std::string(Raw.segname);
       VirtualAddress = Raw.vmaddr;
       VirtualSize = Raw.vmsize;
       FileOffset = Raw.fileoff;
       FileSize = Raw.filesize;
-
-      // TODO Set this depending of flags to MachOParser::Parse
-      ActualAddress = VirtualAddress;
 
       for (uint32_t s = 0; s < Raw.nsects; ++s) {
         ReadAThingFromInputAndPush(Input, Sections);
@@ -329,7 +332,7 @@ public:
       auto StringTableSize = Parser.SymbolTable->StringTableSize;
 
       SectionNumber = Raw.n_sect;
-      Value = Raw.n_value;
+      Value = Raw.n_value + Parser.ImageSlide;
 
       IsStub = Raw.n_type & N_STAB;
       IsPrivateExternal = Raw.n_type & N_PEXT;
@@ -369,9 +372,10 @@ public:
   class MachOSymbolTable : public MachOThing<symtab_command> {
   public:
     using MachOThing<symtab_command>::Raw;
-    uint32_t StringTableOffset;
-    uint32_t StringTableSize;
     std::vector<std::shared_ptr<MachOSymbolTableEntry>> Symbols;
+
+    decltype(Raw.stroff) StringTableOffset;
+    decltype(Raw.strsize) StringTableSize;
 
   public:
     bool PostParse(MachOParser &Parser) {
@@ -379,13 +383,17 @@ public:
       // the symoff is given relative to the object file and not segment
       // itself. We have to subtract segment fileoff from this value to get
       // segment relative offset.
-      if (auto seg = Parser.GetSegmentByName(SEG_LINKEDIT)) {
+      if (auto LinkEdit = Parser.GetSegmentByName(SEG_LINKEDIT)) {
         auto &Input = Parser.Input;
 
-        StringTableOffset = seg->ActualAddress + Raw.stroff - seg->FileOffset;
+        uint64_t LinkEditOffset = Parser.IsImage
+                                      ? LinkEdit->VirtualAddress - Parser.ImageAddress
+                                      : LinkEdit->FileOffset;
+
+        StringTableOffset = LinkEditOffset + Raw.stroff - LinkEdit->FileOffset;
         StringTableSize = Raw.strsize;
 
-        Input.seekg(seg->ActualAddress + Raw.symoff - seg->FileOffset);
+        Input.seekg(LinkEditOffset + Raw.symoff - LinkEdit->FileOffset);
         for (uint32_t i = 0; i < Raw.nsyms && Input.good(); ++i) {
           ReadAThingFromInputAndPush(Input, Symbols);
         }
@@ -434,9 +442,14 @@ public:
 private:
   std::string Label;
   std::istream &Input;
+
   uint32_t Flags;
-  bool IsImage;
-  bool IsFile;
+  BoundFlagEq<MO_PARSE_IMAGE> IsImage{Flags};
+  BoundFlagEq<MO_PARSE_FILE> IsFile{Flags};
+
+  // VirtualAddress of the image we parse
+  uint64_t ImageAddress;
+  uint64_t ImageSlide;
 
 public:
   std::shared_ptr<MachOHeader> Header;
@@ -450,11 +463,10 @@ public:
   std::shared_ptr<MachODyLinker> DyLinkerId;
 
 public:
-  MachOParser(std::string Label, std::istream &Input, uint32_t Flags)
-      : Label(Label), Input(Input), Flags(Flags) {
-    IsImage = Flags == MO_PARSE_IMAGE;
-    IsFile = Flags == MO_PARSE_FILE;
-  }
+  MachOParser(std::string Label, std::istream &Input, uint32_t Flags,
+              uint64_t ImageAddress = 0)
+      : Label(Label), Input(Input), Flags(Flags), ImageAddress(ImageAddress),
+        ImageSlide(0) {}
 
   std::shared_ptr<MachOSegment> GetSegmentByName(std::string Name) {
     for (auto &Segment : Segments) {
@@ -501,6 +513,7 @@ public:
 
       case lc_segment: {
         ReadAThingFromInputAndPush(Input, Segments);
+        auto Segment = Segments.back();
         break;
       }
 
@@ -555,6 +568,8 @@ public:
 
 private:
   bool PostParse() {
+    HandleASLR();
+
     if (SymbolTable) {
       SymbolTable->PostParse(*this);
     }
@@ -567,6 +582,34 @@ private:
     }
 
     return true;
+  }
+
+  // FIXME: Design Issue:
+  // This seems like a bad choice to handle ASLR in parser, but without knowing
+  // the slide it is not possible(in general case) to parse symbol table in
+  // memory.
+  void HandleASLR() {
+    // DyLD is a subject to ASLR(though it is a non-pie binary), and this works
+    // because MacOS's x86-64 only user-space code model is very similar to
+    // AMD64 Small PIE. In this case we have to adjust provided value to
+    // pinpoint the symbol we are looking for.
+    if (IsImage && (Header->IsPIE || Header->IsTypeDynamicLinker)) {
+
+      // Slide is the distance between requested virtual address and assigned
+      // after ASLR. It is calculated by subtracting vmaddr of the __TEXT
+      // segment from the image virtual address. It is common vmaddr of the
+      // __TEXT to be 0.
+      //
+      // NOTE:
+      // DyLD, though, does not use __TEXT segment directly but rather
+      // selects a segment that has no file offset (fileoff == 0) and has
+      // non-zero size (filesize != 0) which selects __TEXT.
+      ImageSlide = ImageAddress - GetSegmentByName(SEG_TEXT)->VirtualAddress;
+
+      for (auto &Segment : Segments) {
+        Segment->ApplyVirtualMemorySlide(ImageSlide);
+      }
+    }
   }
 };
 

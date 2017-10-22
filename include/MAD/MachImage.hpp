@@ -19,38 +19,10 @@ template <typename T, typename = IsMachSystem_t<T>> class MachImage {
   SymbolTable<T> SymbolTable;
 
 private:
-  void HandlerASLR() {
-    auto Header = Parser.Header;
-
-    // DyLD is a subject to ASLR(though it is a non-pie binary), and this works
-    // because MacOS's x86-64 only user-space code model is very similar to
-    // AMD64 Small PIE. In this case we have to adjust provided value to
-    // pinpoint the symbol we are looking for.
-    if (Header->IsPIE || Header->IsTypeDynamicLinker) {
-      for (auto &Symbol : Parser.SymbolTable->Symbols) {
-
-        // Slide is the distance between requested virtual address and assigned
-        // after ASLR. It is calculated by subtracting vmaddr of the __TEXT
-        // segment from the image virtual address. It is common vmaddr of the
-        // __TEXT to be 0.
-        //
-        // NOTE:
-        // DyLD, though, does not use __TEXT segment directly but rather
-        // selects a segment that has no file offset (fileoff == 0) and has
-        // non-zero size (filesize != 0) which selects __TEXT.
-        auto Slide = Address - GetTextSegment()->VirtualAddress;
-
-        // Because symbol's address is virtual(not an offset from the start of
-        // the segment or file) we add this slide to the value of the symbol.
-        Symbol->Value += Slide;
-      }
-    }
-  }
-
 public:
   MachImage(std::string Name, MachTask &Task, vm_address_t Address)
       : Task(Task), Address(Address), MemoryStream(Task.GetMemory(), Address),
-        Parser(Name, MemoryStream, MO_PARSE_IMAGE), SymbolTable(Parser) {}
+        Parser(Name, MemoryStream, MO_PARSE_IMAGE, Address), SymbolTable(Parser) {}
 
   MachImage(const MachImage &Other) = delete;
   MachImage &operator=(const MachImage &Other) = delete;
@@ -62,7 +34,6 @@ public:
     if (!Parser.Parse()) {
       return false;
     }
-    HandlerASLR();
     SymbolTable.Init();
 
     return true;
