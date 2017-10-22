@@ -18,6 +18,7 @@
 
 #include "MAD/Debug.hpp"
 #include "MAD/Mach.hpp"
+#include "MAD/Utils.hpp"
 
 namespace mad {
 
@@ -88,38 +89,90 @@ public:
   class MachOHeader : public MachOThing<HeaderCmd_t> {
   public:
     using MachOThing<HeaderCmd_t>::Raw;
-    uint32_t Filetype;
-    bool IsTypeObject;
-    bool IsExecute;
-    bool IsFVMLibrary;
-    bool IsCore;
-    bool IsPreload;
-    bool IsDynamicLibrary;
-    bool IsDynamicLinker;
-    bool IsBundle;
-    bool IsDynamicLibraryStub;
-    bool IsDebugSymbols;
-    bool IsKernelExtensionBundle;
+    uint32_t Filetype = 0;
+
+    // File type
+    FlagEq<MH_OBJECT> IsTypeObject;
+    FlagEq<MH_EXECUTE> IsTypeExecute;
+    FlagEq<MH_FVMLIB> IsTypeFVMLibrary;
+    FlagEq<MH_CORE> IsTypeCore;
+    FlagEq<MH_PRELOAD> IsTypePreload;
+    FlagEq<MH_DYLIB> IsTypeDynamicLibrary;
+    FlagEq<MH_DYLINKER> IsTypeDynamicLinker;
+    FlagEq<MH_BUNDLE> IsTypeBundle;
+    FlagEq<MH_DYLIB_STUB> IsTypeDynamicLibraryStub;
+    FlagEq<MH_DSYM> IsTypeDebugSymbols;
+    FlagEq<MH_KEXT_BUNDLE> IsTypeKernelExtensionBundle;
 
     // flags
-    bool IsTwoLevel;
+    FlagAnd<MH_NOUNDEFS> HasNoUndefs;
+    FlagAnd<MH_INCRLINK> IsIncrementallyLinked;
+    FlagAnd<MH_DYLDLINK> IsDynamicallyLinked;
+    FlagAnd<MH_BINDATLOAD> IsBoudndAtLoading;
+    FlagAnd<MH_PREBOUND> IsPrebound;
+    FlagAnd<MH_SPLIT_SEGS> HasSplitSegments;
+    FlagAnd<MH_LAZY_INIT> IsLazilyInitialized;
+    FlagAnd<MH_TWOLEVEL> IsTwoLevel;
+    FlagAnd<MH_FORCE_FLAT> IsForcingFlat;
+    FlagAnd<MH_NOMULTIDEFS> HasNoMultipleDefinitions;
+    FlagAnd<MH_NOFIXPREBINDING> HasNoFixPrebinding;
+    FlagAnd<MH_PREBINDABLE> IsBoundToAllModules;
+    FlagAnd<MH_SUBSECTIONS_VIA_SYMBOLS> HasSubsectionsViaSymbols;
+    FlagAnd<MH_CANONICAL> IsCanonial;
+    FlagAnd<MH_WEAK_DEFINES> HasWeakSymbols;
+    FlagAnd<MH_BINDS_TO_WEAK> UsesWeakSymbols;
+    FlagAnd<MH_ALLOW_STACK_EXECUTION> AllowsStackExecution;
+    FlagAnd<MH_ROOT_SAFE> SafeForRoot;
+    FlagAnd<MH_SETUID_SAFE> SafeForSetUID;
+    FlagAnd<MH_NO_REEXPORTED_DYLIBS> HasNoReExportedLibraries;
+    FlagAnd<MH_PIE> IsPIE;
+    FlagAnd<MH_DEAD_STRIPPABLE_DYLIB> IsDeadStrippableDynamicLibrary;
+    FlagAnd<MH_HAS_TLV_DESCRIPTORS> HasThreadLocalVariableDescriptors;
+    FlagAnd<MH_NO_HEAP_EXECUTION> HasNonExecutableHeap;
+    FlagAnd<MH_APP_EXTENSION_SAFE> IsAppExtensionSafe;
 
   public:
     bool Parse(std::istream &Input) {
       Filetype = Raw.filetype;
-      IsTypeObject = Filetype == MH_OBJECT;
-      IsExecute = Filetype == MH_EXECUTE;
-      IsFVMLibrary = Filetype == MH_FVMLIB;
-      IsCore = Filetype == MH_CORE;
-      IsPreload = Filetype == MH_PRELOAD;
-      IsDynamicLibrary = Filetype == MH_DYLIB;
-      IsDynamicLinker = Filetype == MH_DYLINKER;
-      IsBundle = Filetype == MH_BUNDLE;
-      IsDynamicLibraryStub = Filetype == MH_DYLIB_STUB;
-      IsDebugSymbols = Filetype == MH_DSYM;
-      IsKernelExtensionBundle = Filetype == MH_KEXT_BUNDLE;
 
-      IsTwoLevel = Raw.flags & MH_TWOLEVEL;
+      IsTypeObject = Filetype;
+      IsTypeExecute = Filetype;
+      IsTypeFVMLibrary = Filetype;
+      IsTypeCore = Filetype;
+      IsTypePreload = Filetype;
+      IsTypeDynamicLibrary = Filetype;
+      IsTypeDynamicLinker = Filetype;
+      IsTypeBundle = Filetype;
+      IsTypeDynamicLibraryStub = Filetype;
+      IsTypeDebugSymbols = Filetype;
+      IsTypeKernelExtensionBundle = Filetype;
+
+      HasNoUndefs = Raw.flags;
+      IsIncrementallyLinked = Raw.flags;
+      IsDynamicallyLinked = Raw.flags;
+      IsBoudndAtLoading = Raw.flags;
+      IsPrebound = Raw.flags;
+      HasSplitSegments = Raw.flags;
+      IsLazilyInitialized = Raw.flags;
+      IsTwoLevel = Raw.flags;
+      IsForcingFlat = Raw.flags;
+      HasNoMultipleDefinitions = Raw.flags;
+      HasNoFixPrebinding = Raw.flags;
+      IsBoundToAllModules = Raw.flags;
+      HasSubsectionsViaSymbols = Raw.flags;
+      IsCanonial = Raw.flags;
+      HasWeakSymbols = Raw.flags;
+      UsesWeakSymbols = Raw.flags;
+      AllowsStackExecution = Raw.flags;
+      SafeForRoot = Raw.flags;
+      SafeForSetUID = Raw.flags;
+      HasNoReExportedLibraries = Raw.flags;
+      IsPIE = Raw.flags;
+      IsDeadStrippableDynamicLibrary = Raw.flags;
+      HasThreadLocalVariableDescriptors = Raw.flags;
+      HasNonExecutableHeap = Raw.flags;
+      IsAppExtensionSafe = Raw.flags;
+
       return true;
     }
   };
