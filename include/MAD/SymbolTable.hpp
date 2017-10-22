@@ -19,11 +19,10 @@ private:
 public:
   SymbolTable(MachOParser<T> &Parser) : Parser(Parser) {}
 
-  bool Init() {
+  void Init() {
     for (auto Entry : Parser.SymbolTable->Symbols) {
       SymbolsByName.insert({Entry->Name, Entry});
     }
-    return true;
   }
 
   auto GetSymbols() {

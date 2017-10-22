@@ -92,87 +92,50 @@ public:
     uint32_t Filetype = 0;
 
     // File type
-    FlagEq<MH_OBJECT> IsTypeObject;
-    FlagEq<MH_EXECUTE> IsTypeExecute;
-    FlagEq<MH_FVMLIB> IsTypeFVMLibrary;
-    FlagEq<MH_CORE> IsTypeCore;
-    FlagEq<MH_PRELOAD> IsTypePreload;
-    FlagEq<MH_DYLIB> IsTypeDynamicLibrary;
-    FlagEq<MH_DYLINKER> IsTypeDynamicLinker;
-    FlagEq<MH_BUNDLE> IsTypeBundle;
-    FlagEq<MH_DYLIB_STUB> IsTypeDynamicLibraryStub;
-    FlagEq<MH_DSYM> IsTypeDebugSymbols;
-    FlagEq<MH_KEXT_BUNDLE> IsTypeKernelExtensionBundle;
+    BoundFlagEq<MH_OBJECT> IsTypeObject{Filetype};
+    BoundFlagEq<MH_EXECUTE> IsTypeExecute{Filetype};
+    BoundFlagEq<MH_FVMLIB> IsTypeFVMLibrary{Filetype};
+    BoundFlagEq<MH_CORE> IsTypeCore{Filetype};
+    BoundFlagEq<MH_PRELOAD> IsTypePreload{Filetype};
+    BoundFlagEq<MH_DYLIB> IsTypeDynamicLibrary{Filetype};
+    BoundFlagEq<MH_DYLINKER> IsTypeDynamicLinker{Filetype};
+    BoundFlagEq<MH_BUNDLE> IsTypeBundle{Filetype};
+    BoundFlagEq<MH_DYLIB_STUB> IsTypeDynamicLibraryStub{Filetype};
+    BoundFlagEq<MH_DSYM> IsTypeDebugSymbols{Filetype};
+    BoundFlagEq<MH_KEXT_BUNDLE> IsTypeKernelExtensionBundle{Filetype};
 
-    // flags
-    FlagAnd<MH_NOUNDEFS> HasNoUndefs;
-    FlagAnd<MH_INCRLINK> IsIncrementallyLinked;
-    FlagAnd<MH_DYLDLINK> IsDynamicallyLinked;
-    FlagAnd<MH_BINDATLOAD> IsBoudndAtLoading;
-    FlagAnd<MH_PREBOUND> IsPrebound;
-    FlagAnd<MH_SPLIT_SEGS> HasSplitSegments;
-    FlagAnd<MH_LAZY_INIT> IsLazilyInitialized;
-    FlagAnd<MH_TWOLEVEL> IsTwoLevel;
-    FlagAnd<MH_FORCE_FLAT> IsForcingFlat;
-    FlagAnd<MH_NOMULTIDEFS> HasNoMultipleDefinitions;
-    FlagAnd<MH_NOFIXPREBINDING> HasNoFixPrebinding;
-    FlagAnd<MH_PREBINDABLE> IsBoundToAllModules;
-    FlagAnd<MH_SUBSECTIONS_VIA_SYMBOLS> HasSubsectionsViaSymbols;
-    FlagAnd<MH_CANONICAL> IsCanonial;
-    FlagAnd<MH_WEAK_DEFINES> HasWeakSymbols;
-    FlagAnd<MH_BINDS_TO_WEAK> UsesWeakSymbols;
-    FlagAnd<MH_ALLOW_STACK_EXECUTION> AllowsStackExecution;
-    FlagAnd<MH_ROOT_SAFE> SafeForRoot;
-    FlagAnd<MH_SETUID_SAFE> SafeForSetUID;
-    FlagAnd<MH_NO_REEXPORTED_DYLIBS> HasNoReExportedLibraries;
-    FlagAnd<MH_PIE> IsPIE;
-    FlagAnd<MH_DEAD_STRIPPABLE_DYLIB> IsDeadStrippableDynamicLibrary;
-    FlagAnd<MH_HAS_TLV_DESCRIPTORS> HasThreadLocalVariableDescriptors;
-    FlagAnd<MH_NO_HEAP_EXECUTION> HasNonExecutableHeap;
-    FlagAnd<MH_APP_EXTENSION_SAFE> IsAppExtensionSafe;
+    // Flags
+    BoundFlagAnd<MH_NOUNDEFS> HasNoUndefs{Raw.flags};
+    BoundFlagAnd<MH_INCRLINK> IsIncrementallyLinked{Raw.flags};
+    BoundFlagAnd<MH_DYLDLINK> IsDynamicallyLinked{Raw.flags};
+    BoundFlagAnd<MH_BINDATLOAD> IsBoudndAtLoading{Raw.flags};
+    BoundFlagAnd<MH_PREBOUND> IsPrebound{Raw.flags};
+    BoundFlagAnd<MH_SPLIT_SEGS> HasSplitSegments{Raw.flags};
+    BoundFlagAnd<MH_LAZY_INIT> IsLazilyInitialized{Raw.flags};
+    BoundFlagAnd<MH_TWOLEVEL> IsTwoLevel{Raw.flags};
+    BoundFlagAnd<MH_FORCE_FLAT> IsForcingFlat{Raw.flags};
+    BoundFlagAnd<MH_NOMULTIDEFS> HasNoMultipleDefinitions{Raw.flags};
+    BoundFlagAnd<MH_NOFIXPREBINDING> HasNoFixPrebinding{Raw.flags};
+    BoundFlagAnd<MH_PREBINDABLE> IsBoundToAllModules{Raw.flags};
+    BoundFlagAnd<MH_SUBSECTIONS_VIA_SYMBOLS> HasSymSubsections{Raw.flags};
+    BoundFlagAnd<MH_CANONICAL> IsCanonial{Raw.flags};
+    BoundFlagAnd<MH_WEAK_DEFINES> HasWeakSymbols{Raw.flags};
+    BoundFlagAnd<MH_BINDS_TO_WEAK> UsesWeakSymbols{Raw.flags};
+    BoundFlagAnd<MH_ALLOW_STACK_EXECUTION> AllowsStackExec{Raw.flags};
+    BoundFlagAnd<MH_ROOT_SAFE> SafeForRoot{Raw.flags};
+    BoundFlagAnd<MH_SETUID_SAFE> SafeForSetUID{Raw.flags};
+    BoundFlagAnd<MH_NO_REEXPORTED_DYLIBS> HasNoReExpLibraries{Raw.flags};
+    BoundFlagAnd<MH_PIE> IsPIE{Raw.flags};
+    BoundFlagAnd<MH_DEAD_STRIPPABLE_DYLIB> IsDeadStripDyLib{Raw.flags};
+    BoundFlagAnd<MH_HAS_TLV_DESCRIPTORS> HasTLVDescriptors{Raw.flags};
+    BoundFlagAnd<MH_NO_HEAP_EXECUTION> HasNonExecutableHeap{Raw.flags};
+    BoundFlagAnd<MH_APP_EXTENSION_SAFE> IsAppExtensionSafe{Raw.flags};
 
   public:
     bool Parse(std::istream &Input) {
       Filetype = Raw.filetype;
 
-      IsTypeObject = Filetype;
-      IsTypeExecute = Filetype;
-      IsTypeFVMLibrary = Filetype;
-      IsTypeCore = Filetype;
-      IsTypePreload = Filetype;
-      IsTypeDynamicLibrary = Filetype;
-      IsTypeDynamicLinker = Filetype;
-      IsTypeBundle = Filetype;
-      IsTypeDynamicLibraryStub = Filetype;
-      IsTypeDebugSymbols = Filetype;
-      IsTypeKernelExtensionBundle = Filetype;
-
-      HasNoUndefs = Raw.flags;
-      IsIncrementallyLinked = Raw.flags;
-      IsDynamicallyLinked = Raw.flags;
-      IsBoudndAtLoading = Raw.flags;
-      IsPrebound = Raw.flags;
-      HasSplitSegments = Raw.flags;
-      IsLazilyInitialized = Raw.flags;
-      IsTwoLevel = Raw.flags;
-      IsForcingFlat = Raw.flags;
-      HasNoMultipleDefinitions = Raw.flags;
-      HasNoFixPrebinding = Raw.flags;
-      IsBoundToAllModules = Raw.flags;
-      HasSubsectionsViaSymbols = Raw.flags;
-      IsCanonial = Raw.flags;
-      HasWeakSymbols = Raw.flags;
-      UsesWeakSymbols = Raw.flags;
-      AllowsStackExecution = Raw.flags;
-      SafeForRoot = Raw.flags;
-      SafeForSetUID = Raw.flags;
-      HasNoReExportedLibraries = Raw.flags;
-      IsPIE = Raw.flags;
-      IsDeadStrippableDynamicLibrary = Raw.flags;
-      HasThreadLocalVariableDescriptors = Raw.flags;
-      HasNonExecutableHeap = Raw.flags;
-      IsAppExtensionSafe = Raw.flags;
-
+      PRINT_DEBUG("ISPIE: ", IsPIE);
       return true;
     }
   };
