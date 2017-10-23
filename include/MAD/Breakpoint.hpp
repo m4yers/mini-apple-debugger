@@ -6,6 +6,7 @@
 #include <unistd.h>
 
 // MAD
+#include "MAD/Error.hpp"
 #include "MAD/MachMemory.hpp"
 
 #define BREAKPOINT_INSTRUCTION 0xCC
@@ -26,6 +27,8 @@ public:
 
   bool Enable() {
     if (Memory.Read(Address, sizeof(Original), &Original) != sizeof(Original)) {
+      Error Err(MAD_ERROR_BREAKPOINT);
+      Err.Log("Could not set breakpoint at", HEX(Address));
       return false;
     }
 
@@ -34,6 +37,8 @@ public:
 
     if (Memory.Write(Address, (vm_offset_t)&Modified, sizeof(Modified)) !=
         sizeof(Original)) {
+      Error Err(MAD_ERROR_BREAKPOINT);
+      Err.Log("Could not set breakpoint at", HEX(Address));
       return false;
     }
 
@@ -43,6 +48,8 @@ public:
   bool Disable() {
     if (Memory.Write(Address, (vm_offset_t)&Original, sizeof(Original)) !=
         sizeof(Original)) {
+      Error Err(MAD_ERROR_BREAKPOINT);
+      Err.Log("Could not remove breakpoint at", HEX(Address));
       return false;
     }
 

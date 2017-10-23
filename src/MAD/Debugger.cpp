@@ -45,8 +45,6 @@ void Debugger::StartDebugging() {
 
   auto DyLinkerNotifyBreakpoint = CreateBreakpoint(DyLinkerNotify->Value);
   if (!DyLinkerNotifyBreakpoint->Enable()) {
-    Error Err(MAD_ERROR_BREAKPOINT);
-    Err.Log("Could not set break at __dyld_debugger_notification");
     return;
   }
 
@@ -56,8 +54,6 @@ void Debugger::StartDebugging() {
 
   // Remove breakpoint
   if (!DyLinkerNotifyBreakpoint->Disable()) {
-    Error Err(MAD_ERROR_BREAKPOINT);
-    Err.Log("Could not disable break at __dyld_debugger_notification");
     return;
   }
 
@@ -75,16 +71,14 @@ void Debugger::StartDebugging() {
   auto Main = HelloImage->GetSymbolTable().GetSymbolByName("_main");
   auto MainBreakpoint = CreateBreakpoint(Main->Value);
   if (!MainBreakpoint->Enable()) {
-    PRINT_ERROR("Oh SNAP!");
-    exit(2);
+    return;
   }
 
   ptrace(PT_CONTINUE, Process.GetPID(), (caddr_t)1, 0);
   wait(&wait_status);
 
   if (!MainBreakpoint->Disable()) {
-    PRINT_ERROR("Oh SNAP! Disable");
-    exit(2);
+    return;
   }
 
   auto &Thread2 = Task.GetThreads().front();
