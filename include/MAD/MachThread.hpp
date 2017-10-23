@@ -15,12 +15,18 @@ class MachThread {
 
 public:
   MachThread(mach_port_t task, thread_act_t id) : task(task), id(id){};
+  MachThread(const MachThread &) = delete;
+  MachThread operator=(const MachThread &) = delete;
+  MachThread(MachThread &&) = default;
+  MachThread &operator=(MachThread &&) = default;
 
   thread_act_t GetId() { return id; }
 
+  //FIXME: nedd a better prefix, maybe fetch?
   bool GetThreadState();
   bool SetThreadState();
 
+  //FIXME: nedd a better prefix, maybe fetch?
   bool GetStates();
   bool SetStates();
 

@@ -2,7 +2,7 @@
 #include <cstring>
 
 // MAD
-#include "MAD/Debug.hpp"
+#include "MAD/Error.hpp"
 #include "MAD/MachMemoryRegion.hpp"
 
 using namespace mad;
@@ -12,24 +12,22 @@ MachMemoryRegion::MachMemoryRegion(mach_port_t Port,
     : Port(Port), Address(RequestedAddress) {
 
   mach_msg_type_number_t InfoSize = VM_REGION_SUBMAP_SHORT_INFO_COUNT_64;
-  if (auto kern = mach_vm_region_recurse(Port, &Address, &Size, &Depth,
-                                         (vm_region_recurse_info_64_t)&Data,
-                                         &InfoSize)) {
-    PRINT_ERROR("vm_region_recurse");
-    Valid = false;
-  }
-
-  // It is possible for vm_region_recurse return a region that does not contain
-  // requested address. This happens if the requested address points to
-  // unmapped part of memory.
-  if (RequestedAddress < Address || RequestedAddress >= (Address + Size)) {
-    PRINT_ERROR("Requested address is part of any region");
-    Valid = false;
+  Err = mach_vm_region_recurse(Port, &Address, &Size, &Depth,
+                               (vm_region_recurse_info_64_t)&Data, &InfoSize);
+  if (Err) {
+    Err.Log("Could not get region at", RequestedAddress);
   } else {
-    CurrentProtection = Data.protection;
-    MaximumProtection = Data.max_protection;
-    Depth = 1024;
-    Valid = true;
+    // It is possible for vm_region_recurse return a region that does not
+    // contain requested address. This happens if the requested address points
+    // to unmapped part of memory.
+    if (RequestedAddress < Address || RequestedAddress >= (Address + Size)) {
+      Err = Error(MAD_ERROR_MEMORY);
+      Err.Log("Requested address is not part of any region");
+    } else {
+      CurrentProtection = Data.protection;
+      MaximumProtection = Data.max_protection;
+      Depth = 1024;
+    }
   }
 }
 
@@ -49,10 +47,9 @@ bool MachMemoryRegion::SetProtection(vm_prot_t Protection) {
     return false;
   }
 
-  if (auto kern = vm_protect(Port, Address, Size, false, Protection)) {
-    PRINT_KERN_ERROR_V(kern, " at ", HEX(Address), " setting protection to ",
-                       HEX(Protection));
-    Valid = false;
+  Err = vm_protect(Port, Address, Size, false, Protection);
+  if (Err) {
+    Err.Log("At", HEX(Address), "setting protection to", HEX(Protection));
     return false;
   }
 
@@ -70,10 +67,5 @@ bool MachMemoryRegion::RestoreProtection() {
     return true;
   }
 
-  if (!SetProtection(Data.protection)) {
-    Valid = false;
-    return false;
-  }
-
-  return true;
+  return SetProtection(Data.protection);
 }

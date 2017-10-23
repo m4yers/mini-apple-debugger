@@ -1,7 +1,7 @@
 #include <mach-o/fat.h>
 
 #include "MAD/UniversalBinary.hpp"
-#include "MAD/Debug.hpp"
+#include "MAD/Error.hpp"
 
 using namespace mad;
 
@@ -12,7 +12,8 @@ bool UniversalBinary::Parse() {
   Input.read((char *)&header, sizeof(fat_header));
 
   if (header.magic != FAT_MAGIC && header.magic != FAT_CIGAM) {
-    PRINT_ERROR("Not a fat binary: ", Path);
+    Error Err(MAD_ERROR_PARSER);
+    Err.Log("Not a FAT binary", Path);
     return false;
   }
 

@@ -16,7 +16,7 @@
 #include <mach-o/stab.h>
 #include <uuid/uuid.h>
 
-#include "MAD/Debug.hpp"
+#include "MAD/Error.hpp"
 #include "MAD/Mach.hpp"
 #include "MAD/Utils.hpp"
 
@@ -386,9 +386,9 @@ public:
       if (auto LinkEdit = Parser.GetSegmentByName(SEG_LINKEDIT)) {
         auto &Input = Parser.Input;
 
-        uint64_t LinkEditOffset = Parser.IsImage
-                                      ? LinkEdit->VirtualAddress - Parser.ImageAddress
-                                      : LinkEdit->FileOffset;
+        uint64_t LinkEditOffset =
+            Parser.IsImage ? LinkEdit->VirtualAddress - Parser.ImageAddress
+                           : LinkEdit->FileOffset;
 
         StringTableOffset = LinkEditOffset + Raw.stroff - LinkEdit->FileOffset;
         StringTableSize = Raw.strsize;
@@ -556,7 +556,8 @@ public:
       }
 
       if (!Input.good()) {
-        PRINT_ERROR("Failed to parse ", Label, " at ", mainptr);
+        Error Err(MAD_ERROR_PARSER);
+        Err.Log("Faild to parse", Label, "at", mainptr);
         return false;
       }
 

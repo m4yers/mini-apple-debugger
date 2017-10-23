@@ -1,24 +1,53 @@
 #ifndef BREAKPOINT_HPP_GMRO4YVQ
 #define BREAKPOINT_HPP_GMRO4YVQ
 
+// System
+#include <mach/mach.h>
 #include <unistd.h>
 
-#include "MAD/MachTask.hpp"
+// MAD
+#include "MAD/MachMemory.hpp"
+
+#define BREAKPOINT_INSTRUCTION 0xCC
+#define BREAKPOINT_MASK ~0xFF
 
 namespace mad {
 class Breakpoint {
-  MachTask &Task;
-  uintptr_t Address;
+  MachMemory &Memory;
+  uint64_t Address;
   uintptr_t Original;
 
 public:
-  Breakpoint(MachTask &task, uintptr_t address)
-      : Task(task), Address(address) {}
+  Breakpoint(MachMemory &Memory, vm_address_t Address)
+      : Memory(Memory), Address(Address) {}
 
   bool IsEnabled();
+  auto GetAddress() { return Address; }
 
-  bool Enable();
-  bool Disable();
+  bool Enable() {
+    if (Memory.Read(Address, sizeof(Original), &Original) != sizeof(Original)) {
+      return false;
+    }
+
+    decltype(Original) Modified =
+        (Original & BREAKPOINT_MASK) | BREAKPOINT_INSTRUCTION;
+
+    if (Memory.Write(Address, (vm_offset_t)&Modified, sizeof(Modified)) !=
+        sizeof(Original)) {
+      return false;
+    }
+
+    return true;
+  }
+
+  bool Disable() {
+    if (Memory.Write(Address, (vm_offset_t)&Original, sizeof(Original)) !=
+        sizeof(Original)) {
+      return false;
+    }
+
+    return true;
+  }
 };
 } // namespace mad
 

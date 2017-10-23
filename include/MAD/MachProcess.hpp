@@ -12,42 +12,19 @@
 #include <sys/types.h>
 
 #include "MAD/MachTask.hpp"
+#include <MAD/MachImage.hpp>
 
 namespace mad {
 class MachProcess {
 
 public:
-  // These structures somewhat duplicate existing ones from <mach-o/loader.h>
-  // but do that for convenence sake.
-  struct mach_o_segment {
-    std::string name;
-    uint64_t vmaddr;
-    uint64_t vmsize;
-    uint64_t fileoff;
-    uint64_t filesize;
-    uint64_t maxprot;
-    uint64_t initprot;
-    uint64_t nsects;
-    uint64_t flags;
-  };
-  struct mach_o_information {
-    struct mach_header_64 mach_header;
-    std::vector<struct mach_o_segment> segments;
-    uuid_t uuid;
-    std::string min_version_os_name;
-    std::string min_version_os_version;
-  };
-  struct binary_image_information {
-    std::string path;
-    uint64_t load_address;
-    struct mach_o_information macho_info;
-  };
-
 private:
   std::string Exec;
   pid_t PID;
   MachTask Task;
-  std::map<std::string, binary_image_information> BinaryImages;
+  MachMemory &Memory;
+  std::map<std::string, std::shared_ptr<MachImage64>> ImagesByName;
+  std::map<unsigned, std::vector<std::shared_ptr<MachImage64>>> ImagesByType;
 
 private:
   int RunTarget();
@@ -55,6 +32,9 @@ private:
 
 public:
   MachProcess(std::string exec);
+  MachProcess(const MachProcess &) = delete;
+  MachProcess operator=(const MachProcess &) = delete;
+
   int Execute();
   bool Attach();
   vm_size_t ReadMemory(vm_address_t address, vm_size_t size, void *data);
@@ -63,6 +43,17 @@ public:
 
   pid_t GetPID() { return PID; }
   bool IsParent() { return PID > 0; }
+
+  auto &GetTask() { return Task; };
+
+  auto GetImagesByName(std::string Name) { return ImagesByName[Name]; }
+  auto GetImagesByType(unsigned Type) { return ImagesByType[Type]; }
+
+  auto GetDynamicLinkerImage() {
+    auto &List = ImagesByType[MH_DYLINKER];
+    assert(List.size() == 1);
+    return List.front();
+  }
 
 private:
   using dyld_process_info_create_t = void *(*)(task_t task, uint64_t timestamp,

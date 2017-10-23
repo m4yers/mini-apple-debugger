@@ -1,13 +1,13 @@
 #include "MAD/MachThread.hpp"
-#include "MAD/Debug.hpp"
+#include "MAD/Error.hpp"
 
 using namespace mad;
 
 bool MachThread::GetThreadState() {
 
-  if (auto kern = thread_get_state(id, x86_THREAD_STATE, (thread_state_t)&thread_state,
+  if (Error Err = thread_get_state(id, x86_THREAD_STATE, (thread_state_t)&thread_state,
                        &thread_state_count)) {
-    PRINT_KERN_ERROR(kern);
+    Err.Log("Could not get thread state");
     return false;
   }
 
@@ -15,9 +15,9 @@ bool MachThread::GetThreadState() {
 }
 
 bool MachThread::SetThreadState() {
-  if (auto kern = thread_set_state(id, x86_THREAD_STATE, (thread_state_t)&thread_state,
+  if (Error Err = thread_set_state(id, x86_THREAD_STATE, (thread_state_t)&thread_state,
                        thread_state_count)) {
-    PRINT_KERN_ERROR(kern);
+    Err.Log("Could not set thread state");
     return false;
   }
 

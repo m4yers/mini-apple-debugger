@@ -15,8 +15,9 @@
 
 namespace mad {
 
-#define MAD_ERROR_PARSER 1
-#define MAD_ERROR_MEMORY 2
+#define MAD_ERROR_BREAKPOINT 1
+#define MAD_ERROR_PARSER 2
+#define MAD_ERROR_MEMORY 3
 
 using ErrorType = uint32_t;
 using ErrorFlavour = enum {

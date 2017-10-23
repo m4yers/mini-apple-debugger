@@ -29,16 +29,79 @@ void Debugger::StartDebugging() {
 
   if (!Process.Attach()) {
     PRINT_ERROR("Failed to attach");
+    exit(1);
   }
   PRINT_DEBUG("Attached...");
 
-  uintptr_t address = 0x100003000;
-  uint64_t data = 10;
-  unsigned long size;
+  // We search Dynamic Linker in-memory image for the specific function symbol.
+  // It is used to sync via breakpoint with a debugger. Once debugger attaches
+  // to the process it will stop at _start symbol of the Dynamic Linker, in
+  // order to skip the DyLD code we need to setup a breakpoint at this
+  // function. This stub function is run just before executing any user code
+  // including shared library's init code and C++ static constructors.
+  auto DyLinkerImage = Process.GetDynamicLinkerImage();
+  auto DyLinkerNotify = DyLinkerImage->GetSymbolTable().GetSymbolByName(
+      "__dyld_debugger_notification");
 
-  unsigned icounter = 0;
+  auto DyLinkerNotifyBreakpoint = CreateBreakpoint(DyLinkerNotify->Value);
+  if (!DyLinkerNotifyBreakpoint->Enable()) {
+    Error Err(MAD_ERROR_BREAKPOINT);
+    Err.Log("Could not set break at __dyld_debugger_notification");
+    return;
+  }
+
+  // Wait till we hit that breakpoint
+  ptrace(PT_CONTINUE, Process.GetPID(), (caddr_t)1, 0);
+  wait(&wait_status);
+
+  // Remove breakpoint
+  if (!DyLinkerNotifyBreakpoint->Disable()) {
+    Error Err(MAD_ERROR_BREAKPOINT);
+    Err.Log("Could not disable break at __dyld_debugger_notification");
+    return;
+  }
+
+  // Move to the start of the symbol
+  auto &Thread = Task.GetThreads().front();
+  Thread.GetStates();
+  Thread.ThreadState64()->__rip = DyLinkerNotifyBreakpoint->GetAddress();
+  Thread.SetStates();
+
+  PRINT_DEBUG("SYM: ", HEX(DyLinkerNotifyBreakpoint->GetAddress()));
+  PRINT_DEBUG("RIP: ", HEX(Thread.ThreadState64()->__rip));
+
+  auto HelloImage = Process.GetImagesByName(
+      "/Users/m4yers/Development/Projects/mini-apple-debugger/hello");
+  auto Main = HelloImage->GetSymbolTable().GetSymbolByName("_main");
+  auto MainBreakpoint = CreateBreakpoint(Main->Value);
+  if (!MainBreakpoint->Enable()) {
+    PRINT_ERROR("Oh SNAP!");
+    exit(2);
+  }
+
+  ptrace(PT_CONTINUE, Process.GetPID(), (caddr_t)1, 0);
+  wait(&wait_status);
+
+  if (!MainBreakpoint->Disable()) {
+    PRINT_ERROR("Oh SNAP! Disable");
+    exit(2);
+  }
+
+  auto &Thread2 = Task.GetThreads().front();
+  Thread2.GetStates();
+  Thread2.ThreadState64()->__rip = MainBreakpoint->GetAddress();
+  Thread2.SetStates();
+
+  int instructions = 0;
   while (WIFSTOPPED(wait_status)) {
-    icounter++;
+    instructions++;
+
+    auto &Thread3 = Task.GetThreads().front();
+    Thread3.GetStates();
+
+    uint64_t Data;
+    Memory.Read(Thread3.ThreadState64()->__rip, sizeof(Data), &Data);
+    PRINT_DEBUG("RIP: ", HEX(Thread3.ThreadState64()->__rip), " MEM: ", HEX(Data));
 
     // if (auto threads = Task.GetThreads()) {
     //   for (auto thread : *threads) {
@@ -54,23 +117,31 @@ void Debugger::StartDebugging() {
     //         ", RIP: ", (void *)thread.ThreadState64()->__rip);
     //   }
     // }
-    //
-    // if (Task.Read(address, 8, &data, &size)) {
-    //   PRINT_DEBUG("READ FROM ADDRESS: ", (void *)address,
-    //       ", DATA: ", (void *)data);
-    //   break;
-    // }
-    //
-    // if (ptrace(PT_STEP, Process.GetPID(), (caddr_t)1, 0) < 0) {
-    //   PRINT_ERROR(std::strerror(errno));
-    //   return;
-    // }
+
+    if (ptrace(PT_STEP, Process.GetPID(), (caddr_t)1, 0) < 0) {
+      PRINT_ERROR(std::strerror(errno));
+      return;
+    }
 
     break;
     wait(&wait_status);
   }
 
-  PRINT_DEBUG("Executed ", icounter, " instructions");
+  PRINT_DEBUG("INSTRUCTIONS: ", instructions);
+}
+
+std::shared_ptr<Breakpoint> Debugger::CreateBreakpoint(vm_address_t Address) {
+  assert(!BreakpointsByAddress.count(Address) && "Breakpoint already exists");
+
+  auto NewBreakpoint = std::make_shared<Breakpoint>(Memory, Address);
+
+  auto PageSize = Memory.GetPageSize();
+  auto PageMask = ~(PageSize - 1);
+  BreakpointsByPage[Address & PageMask].push_back(NewBreakpoint);
+
+  BreakpointsByAddress.insert({Address, NewBreakpoint});
+
+  return NewBreakpoint;
 }
 
 int Debugger::Run() {

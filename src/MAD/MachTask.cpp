@@ -1,7 +1,7 @@
 #include <cassert>
 #include <mach/mach.h>
 
-#include "MAD/Debug.hpp"
+#include "MAD/Error.hpp"
 #include "MAD/MachTask.hpp"
 
 using namespace mad;
@@ -11,8 +11,8 @@ bool MachTask::Attach(pid_t pid) {
 
   PID = pid;
 
-  if (auto kern = task_for_pid(mach_task_self(), PID, &Port)) {
-    PRINT_KERN_ERROR(kern);
+  if (Error Err = task_for_pid(mach_task_self(), PID, &Port)) {
+    Err.Log("Could not get Task Port for PID", PID);
     return false;
   }
 
@@ -29,8 +29,8 @@ bool MachTask::Detach() {
 bool MachTask::Suspend() {
   assert(!Suspended);
   assert(Port);
-  if (auto kern = task_suspend(Port)) {
-    PRINT_KERN_ERROR(kern);
+  if (Error Err = task_suspend(Port)) {
+    Err.Log("Could not suspend Task ", PID);
     return false;
   }
   Suspended = true;
@@ -40,15 +40,16 @@ bool MachTask::Suspend() {
 bool MachTask::Resume() {
   assert(Suspended);
   assert(Port);
-  if (auto kern = task_resume(Port)) {
-    PRINT_KERN_ERROR(kern);
+  if (Error Err = task_resume(Port)) {
+    Err.Log("Could not resume Task ", PID);
     return false;
   }
   Suspended = false;
   return true;
 }
 
-Optional<std::vector<MachThread>> MachTask::GetThreads(bool DoSuspend) {
+// FIXME: Not cool...
+std::vector<MachThread> MachTask::GetThreads(bool DoSuspend) {
   assert(Port);
 
   thread_act_port_array_t thread_list;
@@ -62,8 +63,8 @@ Optional<std::vector<MachThread>> MachTask::GetThreads(bool DoSuspend) {
     WakeAfter = true;
   }
 
-  if (auto kern = task_threads(Port, &thread_list, &thread_count)) {
-    PRINT_KERN_ERROR(kern);
+  if (Error Err = task_threads(Port, &thread_list, &thread_count)) {
+    Err.Log("Could not fetch threads for", PID);
     return {};
   }
 

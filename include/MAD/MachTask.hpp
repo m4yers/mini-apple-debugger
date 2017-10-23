@@ -40,7 +40,7 @@ public:
   bool Resume();
 
   auto &GetMemory() { return Memory; }
-  Optional<std::vector<MachThread>> GetThreads(bool Suspend = false);
+  std::vector<MachThread> GetThreads(bool Suspend = false);
 };
 } // namespace mad
 

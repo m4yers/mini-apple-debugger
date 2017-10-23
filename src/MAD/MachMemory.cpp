@@ -5,7 +5,7 @@
 // MAD
 #include "MAD/MachMemory.hpp"
 #include "MAD/MachMemoryRegion.hpp"
-#include <MAD/Debug.hpp>
+#include <MAD/Error.hpp>
 
 using namespace mad;
 
@@ -14,9 +14,9 @@ bool MachMemory::Init(mach_port_t Port) {
 
   mach_msg_type_number_t InfoCount = TASK_VM_INFO_COUNT;
   task_vm_info_data_t Info;
-  if (auto kern =
+  if (Error Err =
           task_info(Port, TASK_VM_INFO, (task_info_t)&Info, &InfoCount)) {
-    PRINT_KERN_ERROR(kern);
+    Err.Log();
     return false;
   }
 
@@ -76,10 +76,9 @@ MachMemory::WriteToRegions(std::vector<MachMemoryRegion> &Regions,
       ToWrite = Size;
     }
 
-    if (auto kern = mach_vm_write(Port, Address, Data, ToWrite)) {
+    if (Error Err = mach_vm_write(Port, Address, Data, ToWrite)) {
       // TODO: Specify which region failed
-      PRINT_KERN_ERROR_V(kern, " at ", HEX(Address), " writing ", Size,
-                         " bytes");
+      Err.Log("At", HEX(Address), "writing", Size, "bytes");
       return Written;
     }
 
@@ -96,9 +95,9 @@ mach_vm_size_t MachMemory::Read(mach_vm_address_t Address, mach_vm_size_t size,
                                 void *Data) {
   assert(Port);
   mach_vm_size_t Size;
-  if (auto kern = mach_vm_read_overwrite(Port, Address, size,
-                                    (mach_vm_address_t)Data, &Size)) {
-    PRINT_KERN_ERROR_V(kern, " at ", HEX(Address), " reading ", size, " bytes");
+  if (Error Err = mach_vm_read_overwrite(Port, Address, size,
+                                         (mach_vm_address_t)Data, &Size)) {
+    Err.Log("At", HEX(Address), "reading", size, "bytes");
     return 0;
   }
   return Size;
@@ -110,8 +109,8 @@ mach_vm_size_t MachMemory::Write(mach_vm_address_t Address, vm_offset_t Data,
 
   std::vector<MachMemoryRegion> Regions = GetRegions(Address, Size);
   if (!Regions.back().IsValid()) {
-    // TODO: Once proper erroring is in place pls qualify what the error is
-    PRINT_ERROR("Cannot write to ", HEX(Address), " ", Size, " bytes");
+    Error Err(MAD_ERROR_MEMORY);
+    Err.Log("Cannot use a memory region pointed of ", Address, "-", Address + Size);
     return 0;
   }
 

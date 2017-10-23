@@ -11,6 +11,7 @@
 
 // Std
 #include <cassert>
+#include <memory>
 #include <fstream>
 #include <istream>
 
@@ -18,7 +19,8 @@
 // #import <Foundation/Foundation.h>
 
 // MAD
-#include "MAD/Debug.hpp"
+#include "MAD/Error.hpp"
+#include "MAD/MachImage.hpp"
 #include "MAD/MachOParser.hpp"
 #include "MAD/MachProcess.hpp"
 #include "MAD/MachTaskMemoryStream.hpp"
@@ -29,7 +31,7 @@ using namespace mad;
 
 typedef void *dyld_process_info;
 
-MachProcess::MachProcess(std::string exec) : Exec(exec), PID(0) {
+MachProcess::MachProcess(std::string exec) : Exec(exec), PID(0), Task(), Memory(Task.GetMemory()){
   dyld_process_info_create = (dyld_process_info_create_t)dlsym(
       RTLD_DEFAULT, "_dyld_process_info_create");
   dyld_process_info_for_each_image = (dyld_process_info_for_each_image_t)dlsym(
@@ -46,34 +48,38 @@ void MachProcess::FindAllImages() {
     dyld_process_info_create(Task.GetPort(), 0, &kern_ret);
   dyld_process_info_for_each_image(
       info, ^(uint64_t mach_header_addr, const uuid_t uuid, const char *path) {
-      PRINT_DEBUG("PATH: ", path);
+      // SIDE NOTE: Why the fuck I cannot use move-constructor here?
+      auto Image = std::make_shared<MachImage64>(path, Task, mach_header_addr);
+      Image->Scan();
+      ImagesByName.insert({path, Image});
+      auto Type = Image->GetType();
+      if (!ImagesByType.count(Type)) {
+      ImagesByType.insert({Type, {}});
+      }
+      ImagesByType[Type].push_back(Image);
 
-      MachTaskMemoryStreamBuf buffer(Task, mach_header_addr);
-      std::istream stream(&buffer);
-      MachOParser64 parser(path, stream);
-      parser.Parse();
-
-      struct binary_image_information image;
-      image.path = path;
-      image.load_address = mach_header_addr;
-      uuid_copy(image.macho_info.uuid, uuid);
-      BinaryImages.insert({path, image});
       });
   dyld_process_info_release(info);
+  // for (auto &pair : ImagesByName) {
+  //   auto &Image = pair.second;
+  //   auto &SymbolTable = Image->GetSymbolTable();
+  //   for (auto Entry : SymbolTable.GetSymbols()) {
+  //     auto Section = Entry->Raw.n_sect ? Image->GetSectionByIndex(Entry->Raw.n_sect) : nullptr;
+  //     PRINT_DEBUG("SYMBOL type: ", HEX(Entry->Raw.n_type),
+  //                      ", sect: ", (Section ? Section->Name : "-"),
+  //                      ", desc: ", HEX(Entry->Raw.n_desc),
+  //                     ", value: ", HEX(Entry->Raw.n_value),
+  //                             " ", Entry->Name);
+  //   }
+  // }
 }
 
-#define READ_MACHO_MEMORY(offset, type, variable)                              \
-  type variable;                                                               \
-  if (ReadMemory(offset, sizeof(type), &variable) != sizeof(type)) {           \
-    PRINT_ERROR("could not read struct #type#");                               \
-    return false;                                                              \
-  }
-
+// TODO: ACTUALLY... use stream buffer here
 // TODO: This method must not return a memory read containing breakpoints. It
 // will clean the read buffer from enabled breakpoints
 vm_size_t MachProcess::ReadMemory(vm_address_t address, vm_size_t size,
     void *data) {
-  vm_size_t bytes = Task.ReadMemory(address, size, data);
+  vm_size_t bytes = Memory.Read(address, size, data);
   return bytes;
 }
 
@@ -81,7 +87,7 @@ vm_size_t MachProcess::ReadMemory(vm_address_t address, vm_size_t size,
 // memory first then re apply enabled breakpoints
 vm_size_t MachProcess::WriteMemory(vm_address_t address, vm_offset_t data,
     mach_msg_type_number_t count) {
-  vm_size_t bytes = Task.WriteMemory(address, data, count);
+  vm_size_t bytes = Memory.Write(address, data, count);
   return bytes;
 }
 
@@ -89,12 +95,12 @@ int MachProcess::RunTarget() {
   PRINT_DEBUG("Target started. Will run ", Exec);
 
   if (ptrace(PT_TRACE_ME, 0, 0, 0) < 0) {
-    PRINT_ERROR("ptrace me");
+    Error::FromErrno().Log("Could not PT_TRACE_ME");
     return 2;
   }
 
   execl(Exec.c_str(), Exec.c_str(), NULL);
-  PRINT_ERROR("execl");
+  Error::FromErrno().Log("Could not execl");
   return 2;
 }
 
@@ -103,7 +109,7 @@ int MachProcess::Execute() {
   if (PID == 0) {
     return RunTarget();
   } else if (PID < 0) {
-    PRINT_ERROR("Fork");
+    Error::FromErrno().Log("Could not fork");
     return 1;
   }
 

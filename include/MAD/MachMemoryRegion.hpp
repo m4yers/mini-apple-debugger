@@ -5,9 +5,12 @@
 #include <mach/mach.h>
 #include <mach/mach_vm.h>
 
+// MAD
+#include <MAD/Error.hpp>
+
 namespace mad {
 class MachMemoryRegion {
-  bool Valid;
+  Error Err;
   mach_port_t Port;
   mach_vm_address_t Address;
   mach_vm_size_t Size;
@@ -24,7 +27,8 @@ public:
   MachMemoryRegion &operator=(MachMemoryRegion &&) = default;
   ~MachMemoryRegion();
 
-  bool IsValid() { return Valid; }
+  bool IsValid() { return Err.Success(); }
+  auto GetError() { return Err; }
 
   auto GetAddress() { return Address; }
   auto GetFollowingAddress() { return Address + Size; }
