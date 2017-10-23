@@ -7,14 +7,14 @@
 class OutPrinter {
 public:
   template <typename T, typename... Ts> void print(T &&p, Ts &&... ps) {
-    std::cout << std::forward<T>(p);
+    std::cout << std::forward<T>(p) << " ";
     print(std::forward<Ts>(ps)...);
   }
   template <typename T> void print(T &&p) {
     std::cout << std::forward<T>(p) << std::endl;
   }
   template <typename T, typename... Ts> void error(T &&p, Ts &&... ps) {
-    std::cerr << std::forward<T>(p);
+    std::cerr << std::forward<T>(p) << " ";
     print(std::forward<Ts>(ps)...);
   }
   template <typename T> void error(T &&p) {
