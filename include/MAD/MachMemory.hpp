@@ -3,7 +3,14 @@
 
 // System
 #include <mach/mach.h>
+#include <mach/mach_vm.h>
 #include <unistd.h>
+
+// Std
+#include <vector>
+
+// MAD
+#include <MAD/MachMemoryRegion.hpp>
 
 namespace mad {
 class MachTask;
@@ -12,11 +19,25 @@ class MachMemory {
 
 private:
   mach_port_t Port;
-  vm_size_t PageSize;
+  mach_vm_size_t PageSize;
 
 private:
   bool Init(mach_port_t Port);
   void Fini();
+
+  // Before we do anything with task memory we locate all regions that cover
+  // the specified address and size, verifying that they are contigues and do
+  // not contain gaps. If there is a gap the last vector element will contain
+  // an invalid region.
+  std::vector<MachMemoryRegion> GetRegions(mach_vm_address_t Address,
+                                           mach_vm_size_t Size);
+
+  // Write a byte data array into specified region vector starting from the
+  // Address. This function assumes the Address is contained in the first
+  // Region of the vector.
+  mach_vm_size_t WriteToRegions(std::vector<MachMemoryRegion> &Regions,
+                                mach_vm_address_t Address, vm_offset_t Data,
+                                mach_msg_type_number_t Size);
 
 public:
   MachMemory() : Port(0), PageSize(0) {}
@@ -24,16 +45,12 @@ public:
   MachMemory(const MachMemory &) = delete;
   MachMemory operator=(const MachMemory &) = delete;
 
-  vm_size_t GetPageSize() { return PageSize; }
+  mach_vm_size_t GetPageSize() { return PageSize; }
 
-  bool SetMaxiumuProtection(vm_address_t address, vm_size_t size,
-                            vm_prot_t level);
-  bool SetCurrentProtection(vm_address_t address, vm_size_t size,
-                            vm_prot_t level);
-
-  vm_size_t Read(vm_address_t address, vm_size_t size, void *data);
-  vm_size_t Write(vm_address_t address, vm_offset_t data,
-                  mach_msg_type_number_t count);
+  mach_vm_size_t Read(mach_vm_address_t address, mach_vm_size_t size,
+                      void *data);
+  mach_vm_size_t Write(mach_vm_address_t address, vm_offset_t data,
+                       mach_msg_type_number_t count);
 };
 } // namespace mad
 
