@@ -15,9 +15,10 @@
 
 namespace mad {
 
-#define MAD_ERROR_BREAKPOINT 1u
-#define MAD_ERROR_PARSER 2u
-#define MAD_ERROR_MEMORY 3u
+#define MAD_ERROR_ARGUMENTS 1u
+#define MAD_ERROR_BREAKPOINT 2u
+#define MAD_ERROR_PARSER 3u
+#define MAD_ERROR_MEMORY 4u
 
 using ErrorType = uint32_t;
 using ErrorFlavour = enum {
@@ -39,6 +40,8 @@ inline std::string ErrorFlavourToString(ErrorFlavour Flavour) {
 
 inline std::string MadErrorToString(unsigned Value) {
   switch (Value) {
+  case MAD_ERROR_ARGUMENTS:
+    return "ARGUMENTS";
   case MAD_ERROR_BREAKPOINT:
     return "BREAKPOINT";
   case MAD_ERROR_PARSER:

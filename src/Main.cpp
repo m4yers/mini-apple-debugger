@@ -2,16 +2,17 @@
 
 #include "MAD/Debugger.hpp"
 
-#include "MAD/Debug.hpp"
+#include "MAD/Error.hpp"
 
 using namespace mad;
 
 int main(int argc, char *argv[]) {
   if (argc < 2) {
-    PRINT_ERROR("Expected a program name as argument");
+    Error Err(MAD_ERROR_ARGUMENTS);
+    Err.Log("Expected a programm name as argument");
     return -1;
   }
 
   Debugger D(argv[1]);
-  return D.Run();
+  return D.Start();
 }

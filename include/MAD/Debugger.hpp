@@ -10,11 +10,13 @@
 #include "MAD/Breakpoint.hpp"
 #include "MAD/MachMemory.hpp"
 #include "MAD/MachProcess.hpp"
+#include "MAD/Prompt.hpp"
 
 namespace mad {
 
 class Debugger {
 private:
+  Prompt Prompt;
   MachProcess Process;
   MachTask &Task;
   MachMemory &Memory;
@@ -28,8 +30,8 @@ private:
 
 public:
   Debugger(std::string exec)
-      : Process(exec), Task(Process.GetTask()), Memory(Task.GetMemory()) {}
-  int Run();
+      : Prompt("MAD "), Process(exec), Task(Process.GetTask()), Memory(Task.GetMemory()) {}
+  int Start();
 };
 
 } // namespace mad

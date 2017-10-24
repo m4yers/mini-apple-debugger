@@ -33,6 +33,8 @@ void Debugger::StartDebugging() {
   }
   PRINT_DEBUG("Attached...");
 
+  Prompt.Show();
+
   // We search Dynamic Linker in-memory image for the specific function symbol.
   // It is used to sync via breakpoint with a debugger. Once debugger attaches
   // to the process it will stop at _start symbol of the Dynamic Linker, in
@@ -138,7 +140,7 @@ std::shared_ptr<Breakpoint> Debugger::CreateBreakpoint(vm_address_t Address) {
   return NewBreakpoint;
 }
 
-int Debugger::Run() {
+int Debugger::Start() {
   if (auto code = Process.Execute()) {
     return code;
   }
