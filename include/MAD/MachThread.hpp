@@ -7,20 +7,19 @@
 
 namespace mad {
 class MachThread {
-  pid_t task;
-  thread_act_t id;
+  thread_act_t Id;
 
   x86_thread_state_t thread_state = {};
   mach_msg_type_number_t thread_state_count = x86_THREAD_STATE_COUNT;
 
 public:
-  MachThread(mach_port_t task, thread_act_t id) : task(task), id(id){};
+  MachThread(thread_act_t Id) : Id(Id){};
   MachThread(const MachThread &) = delete;
   MachThread operator=(const MachThread &) = delete;
   MachThread(MachThread &&) = default;
   MachThread &operator=(MachThread &&) = default;
 
-  thread_act_t GetId() { return id; }
+  thread_act_t GetId() { return Id; }
 
   //FIXME: nedd a better prefix, maybe fetch?
   bool GetThreadState();

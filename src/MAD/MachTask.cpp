@@ -70,7 +70,7 @@ std::vector<MachThread> MachTask::GetThreads(bool DoSuspend) {
 
   std::vector<MachThread> result;
   for (mach_msg_type_number_t i = 0; i < thread_count; ++i) {
-    result.emplace_back(Port, thread_list[i]);
+    result.emplace_back(thread_list[i]);
   }
 
   if (WakeAfter) {

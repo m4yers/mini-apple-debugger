@@ -42,11 +42,10 @@ private:
 
 private:
   template <typename S>
-  static bool ReadAThingFromInput(std::istream &Input,
-                                  std::shared_ptr<S> &Thing) {
+  static bool ReadAThingFromInput(std::istream &I, std::shared_ptr<S> &Thing) {
     Thing = std::make_shared<S>();
-    if (Input.read((char *)&Thing->Raw, sizeof(Thing->Raw))) {
-      Thing->Parse(Input);
+    if (I.read((char *)&Thing->Raw, sizeof(Thing->Raw))) {
+      Thing->Parse(I);
       return true;
     }
     return false;
@@ -54,22 +53,22 @@ private:
 
   template <typename S>
   static bool
-  ReadAThingFromInputAndPush(std::istream &Input,
+  ReadAThingFromInputAndPush(std::istream &I,
                              std::vector<std::shared_ptr<S>> &Container) {
     std::shared_ptr<S> Thing = std::make_shared<S>();
-    if (Input.read((char *)&Thing->Raw, sizeof(Thing->Raw))) {
-      Thing->Parse(Input);
+    if (I.read((char *)&Thing->Raw, sizeof(Thing->Raw))) {
+      Thing->Parse(I);
       Container.push_back(std::move(Thing));
       return true;
     }
     return false;
   }
 
-  static std::string ReadNTStringFromInput(std::istream &Input) {
+  static std::string ReadNTStringFromInput(std::istream &I) {
     std::string result;
-    while (Input.good()) {
+    while (I.good()) {
       char ch;
-      Input.read(&ch, 1);
+      I.read(&ch, 1);
       if (!ch) {
         return result;
       }
@@ -82,8 +81,8 @@ public:
   template <typename R> class MachOThing {
   public:
     R Raw;
-    bool Parse(std::istream &Input) { return true; }
-    bool PostParse(MachOParser &Parser) { return true; }
+    bool Parse(std::istream &) { return true; }
+    bool PostParse(MachOParser &) { return true; }
   };
 
   class MachOHeader : public MachOThing<HeaderCmd_t> {
@@ -132,7 +131,7 @@ public:
     BoundFlagAnd<MH_APP_EXTENSION_SAFE> IsAppExtensionSafe{Raw.flags};
 
   public:
-    bool Parse(std::istream &Input) {
+    bool Parse(std::istream &) {
       Filetype = Raw.filetype;
       return true;
     }
@@ -150,7 +149,7 @@ public:
 
   public:
     void ApplyVirtualMemorySlide(uint64_t Value) { VirtualAddress += Value; }
-    bool Parse(std::istream &Input) {
+    bool Parse(std::istream &) {
       Name = std::string(Raw.sectname);
       SegmentName = std::string(Raw.segname);
       return true;
@@ -175,7 +174,7 @@ public:
         Section->ApplyVirtualMemorySlide(Value);
       }
     }
-    bool Parse(std::istream &Input) {
+    bool Parse(std::istream &I) {
       Name = std::string(Raw.segname);
       VirtualAddress = Raw.vmaddr;
       VirtualSize = Raw.vmsize;
@@ -183,15 +182,15 @@ public:
       FileSize = Raw.filesize;
 
       for (uint32_t s = 0; s < Raw.nsects; ++s) {
-        ReadAThingFromInputAndPush(Input, Sections);
+        ReadAThingFromInputAndPush(I, Sections);
       }
 
       return true;
     }
 
-    std::shared_ptr<MachOSection> GetSectionByName(std::string Name) {
+    std::shared_ptr<MachOSection> GetSectionByName(std::string SectionName) {
       for (auto &Section : Sections) {
-        if (Section.Name == Name) {
+        if (Section.Name == SectionName) {
           return Section;
         }
       }
@@ -327,7 +326,7 @@ public:
     // Do processing and specifically string retrieval in post-parse call so we
     // would not jump memory between symbols and strings often
     bool PostParse(MachOParser &Parser) {
-      auto &Input = Parser.Input;
+      auto &I = Parser.Input;
       auto StringTableOffset = Parser.SymbolTable->StringTableOffset;
       auto StringTableSize = Parser.SymbolTable->StringTableSize;
 
@@ -361,8 +360,8 @@ public:
 
       // Zero string table offsets means there is no name for the thing
       if (Index) {
-        Input.seekg(StringTableOffset + Index);
-        Name = ReadNTStringFromInput(Input);
+        I.seekg(StringTableOffset + Index);
+        Name = ReadNTStringFromInput(I);
       }
 
       return true;
@@ -384,7 +383,7 @@ public:
       // itself. We have to subtract segment fileoff from this value to get
       // segment relative offset.
       if (auto LinkEdit = Parser.GetSegmentByName(SEG_LINKEDIT)) {
-        auto &Input = Parser.Input;
+        auto &I = Parser.Input;
 
         uint64_t LinkEditOffset =
             Parser.IsImage ? LinkEdit->VirtualAddress - Parser.ImageAddress
@@ -393,14 +392,14 @@ public:
         StringTableOffset = LinkEditOffset + Raw.stroff - LinkEdit->FileOffset;
         StringTableSize = Raw.strsize;
 
-        Input.seekg(LinkEditOffset + Raw.symoff - LinkEdit->FileOffset);
-        for (uint32_t i = 0; i < Raw.nsyms && Input.good(); ++i) {
-          ReadAThingFromInputAndPush(Input, Symbols);
+        I.seekg(LinkEditOffset + Raw.symoff - LinkEdit->FileOffset);
+        for (uint32_t i = 0; i < Raw.nsyms && I.good(); ++i) {
+          ReadAThingFromInputAndPush(I, Symbols);
         }
 
         for (auto symbol : Symbols) {
           symbol->PostParse(Parser);
-          if (!Input.good()) {
+          if (!I.good()) {
             return false;
           }
         }
@@ -419,9 +418,9 @@ public:
 
   public:
     using MachOThing<dylib_command>::Raw;
-    bool Parse(std::istream &Input) {
-      Input.seekg((size_t)Input.tellg() + Raw.dylib.name.offset - sizeof(Raw));
-      Name = ReadNTStringFromInput(Input);
+    bool Parse(std::istream &I) {
+      I.seekg((size_t)I.tellg() + Raw.dylib.name.offset - sizeof(Raw));
+      Name = ReadNTStringFromInput(I);
       return true;
     }
   };
@@ -432,9 +431,9 @@ public:
 
   public:
     using MachOThing<dylinker_command>::Raw;
-    bool Parse(std::istream &Input) {
-      Input.seekg((size_t)Input.tellg() + Raw.name.offset - sizeof(Raw));
-      Name = ReadNTStringFromInput(Input);
+    bool Parse(std::istream &I) {
+      I.seekg((size_t)I.tellg() + Raw.name.offset - sizeof(Raw));
+      Name = ReadNTStringFromInput(I);
       return true;
     }
   };

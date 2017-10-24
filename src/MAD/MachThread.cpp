@@ -5,7 +5,7 @@ using namespace mad;
 
 bool MachThread::GetThreadState() {
 
-  if (Error Err = thread_get_state(id, x86_THREAD_STATE, (thread_state_t)&thread_state,
+  if (Error Err = thread_get_state(Id, x86_THREAD_STATE, (thread_state_t)&thread_state,
                        &thread_state_count)) {
     Err.Log("Could not get thread state");
     return false;
@@ -15,7 +15,7 @@ bool MachThread::GetThreadState() {
 }
 
 bool MachThread::SetThreadState() {
-  if (Error Err = thread_set_state(id, x86_THREAD_STATE, (thread_state_t)&thread_state,
+  if (Error Err = thread_set_state(Id, x86_THREAD_STATE, (thread_state_t)&thread_state,
                        thread_state_count)) {
     Err.Log("Could not set thread state");
     return false;

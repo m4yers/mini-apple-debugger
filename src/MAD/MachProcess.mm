@@ -47,7 +47,7 @@ void MachProcess::FindAllImages() {
   dyld_process_info info =
     dyld_process_info_create(Task.GetPort(), 0, &kern_ret);
   dyld_process_info_for_each_image(
-      info, ^(uint64_t mach_header_addr, const uuid_t uuid, const char *path) {
+      info, ^(uint64_t mach_header_addr, const uuid_t, const char *path) {
       // SIDE NOTE: Why the fuck I cannot use move-constructor here?
       auto Image = std::make_shared<MachImage64>(path, Task, mach_header_addr);
       Image->Scan();

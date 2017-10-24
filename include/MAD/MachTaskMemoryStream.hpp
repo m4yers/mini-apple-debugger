@@ -13,7 +13,7 @@
 
 using namespace mad;
 
-#define MTS_INVALID_PAGE ~0
+#define MTS_INVALID_PAGE ~0u
 
 // TODO: Allow to choose buffer size, e.g. half-page-size, quater-page-size etc
 // up to pointer size, because it is the minimum we can read from Task memory
@@ -66,22 +66,26 @@ public:
   pos_type seekpos(pos_type pos,
                    std::ios_base::openmode which = std::ios_base::in |
                                                    std::ios_base::out) {
-    SetPosition(pos);
+    if (which & std::ios_base::in) {
+      SetPosition(pos);
+    }
     return Position;
   }
   pos_type seekoff(off_type off, std::ios_base::seekdir dir,
                    std::ios_base::openmode which = std::ios_base::in |
                                                    std::ios_base::out) {
-    switch (dir) {
-    case std::ios_base::beg:
-      SetPosition(off);
-      break;
-    case std::ios_base::end:
-      pos_type(off_type(-1));
-      break;
-    case std::ios_base::cur:
-      AdvancePosition(off);
-      break;
+    if (which & std::ios_base::in) {
+      switch (dir) {
+      case std::ios_base::beg:
+        SetPosition(off);
+        break;
+      case std::ios_base::end:
+        pos_type(off_type(-1));
+        break;
+      case std::ios_base::cur:
+        AdvancePosition(off);
+        break;
+      }
     }
     return Position;
   }

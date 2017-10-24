@@ -61,14 +61,14 @@ public:
   static Error FromErrno() { return Error(errno, ErrorFlavour::POSIX); }
 
 private:
-  std::string GetErrorText(ErrorType Value, ErrorFlavour Flavour) {
-    switch (Flavour) {
+  std::string GetErrorText(ErrorType Val, ErrorFlavour Flav) {
+    switch (Flav) {
     case MAD:
-      return MadErrorToString(Value);
+      return MadErrorToString(Val);
     case Mach:
-      return mach_error_string(Value);
+      return mach_error_string(Val);
     case POSIX:
-      return std::strerror(Value);
+      return std::strerror(Val);
     }
   }
 

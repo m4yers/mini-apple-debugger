@@ -9,8 +9,8 @@
 
 using namespace mad;
 
-bool MachMemory::Init(mach_port_t Port) {
-  this->Port = Port;
+bool MachMemory::Init(mach_port_t TaskPort) {
+  this->Port = TaskPort;
 
   mach_msg_type_number_t InfoCount = TASK_VM_INFO_COUNT;
   task_vm_info_data_t Info;
