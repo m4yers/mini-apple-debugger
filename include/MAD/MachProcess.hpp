@@ -12,9 +12,28 @@
 #include <sys/types.h>
 
 #include "MAD/MachTask.hpp"
+#include <MAD/Error.hpp>
 #include <MAD/MachImage.hpp>
 
 namespace mad {
+
+enum class MachProcessStatusType {
+  ERROR,
+  CONTINUED,
+  STOPPED,
+  SIGNALED,
+  EXITED
+};
+
+class MachProcessStatus {
+public:
+  MachProcessStatusType Type;
+  Error Error;
+  int ExitStatus;
+  int TermSignal;
+  int StopSignal;
+};
+
 class MachProcess {
 
 public:
@@ -23,6 +42,7 @@ private:
   pid_t PID;
   MachTask Task;
   MachMemory &Memory;
+  std::vector<std::shared_ptr<MachImage64>> Images;
   std::map<std::string, std::shared_ptr<MachImage64>> ImagesByName;
   std::map<unsigned, std::vector<std::shared_ptr<MachImage64>>> ImagesByType;
 
@@ -33,7 +53,7 @@ private:
 public:
   MachProcess(std::string exec);
   MachProcess(const MachProcess &) = delete;
-  MachProcess operator=(const MachProcess &) = delete;
+  MachProcess &operator=(const MachProcess &) = delete;
 
   int Execute();
   bool Attach();
@@ -46,6 +66,7 @@ public:
 
   auto &GetTask() { return Task; };
 
+  auto &GetImagess() { return Images; }
   auto GetImagesByName(std::string Name) { return ImagesByName[Name]; }
   auto GetImagesByType(unsigned Type) { return ImagesByType[Type]; }
 
@@ -54,6 +75,12 @@ public:
     assert(List.size() == 1);
     return List.front();
   }
+
+  MachProcessStatus Step();
+  MachProcessStatus Continue();
+
+private:
+  void Wait(MachProcessStatus &);
 
 private:
   using dyld_process_info_create_t = void *(*)(task_t task, uint64_t timestamp,

@@ -11,17 +11,20 @@
 #include <string>
 
 // MAD
+#include <MAD/Config.hpp>
 #include <MAD/Debug.hpp>
 
 namespace mad {
 
 #define MAD_ERROR_ARGUMENTS 1u
-#define MAD_ERROR_BREAKPOINT 2u
-#define MAD_ERROR_PARSER 3u
-#define MAD_ERROR_MEMORY 4u
+#define MAD_ERROR_PROMPT 2u
+#define MAD_ERROR_PROCESS 3u
+#define MAD_ERROR_BREAKPOINT 4u
+#define MAD_ERROR_PARSER 5u
+#define MAD_ERROR_MEMORY 6u
 
 using ErrorType = uint32_t;
-using ErrorFlavour = enum {
+enum class ErrorFlavour {
   MAD,
   Mach,
   POSIX,
@@ -29,11 +32,11 @@ using ErrorFlavour = enum {
 
 inline std::string ErrorFlavourToString(ErrorFlavour Flavour) {
   switch (Flavour) {
-  case MAD:
+  case ErrorFlavour::MAD:
     return "MAD";
-  case Mach:
+  case ErrorFlavour::Mach:
     return "Mach";
-  case POSIX:
+  case ErrorFlavour::POSIX:
     return "POSIX";
   }
 }
@@ -42,6 +45,10 @@ inline std::string MadErrorToString(unsigned Value) {
   switch (Value) {
   case MAD_ERROR_ARGUMENTS:
     return "ARGUMENTS";
+  case MAD_ERROR_PROMPT:
+    return "PROMPT";
+  case MAD_ERROR_PROCESS:
+    return "PROCESS";
   case MAD_ERROR_BREAKPOINT:
     return "BREAKPOINT";
   case MAD_ERROR_PARSER:
@@ -63,11 +70,11 @@ public:
 private:
   std::string GetErrorText(ErrorType Val, ErrorFlavour Flav) {
     switch (Flav) {
-    case MAD:
+    case ErrorFlavour::MAD:
       return MadErrorToString(Val);
-    case Mach:
+    case ErrorFlavour::Mach:
       return mach_error_string(Val);
-    case POSIX:
+    case ErrorFlavour::POSIX:
       return std::strerror(Val);
     }
   }
@@ -110,6 +117,20 @@ public:
     sout.print(ToString(), std::forward<T>(p));
   }
 };
+
+#define mad_unreachable(msg)                                                   \
+  ::mad_unreachable_internal(msg, __FILE__, __LINE__);
+
+static inline void mad_unreachable_internal(const char *msg, const char *file,
+                              unsigned line) {
+  if (msg)
+    sout.error(msg);
+  sout.error("UNREACHABLE executed");
+  if (file)
+    sout.error("at", file, ":", line);
+  abort();
+}
+
 } // namespace mad
 
 #endif /* end of include guard: ERROR_HPP_FCRLWDDW */

@@ -7,7 +7,7 @@
 #include <unistd.h>
 #include <vector>
 
-#include "MAD/Breakpoint.hpp"
+#include "MAD/Breakpoints.hpp"
 #include "MAD/MachMemory.hpp"
 #include "MAD/MachProcess.hpp"
 #include "MAD/Prompt.hpp"
@@ -17,21 +17,19 @@ namespace mad {
 class Debugger {
 private:
   Prompt Prompt;
-  MachProcess Process;
-  MachTask &Task;
-  MachMemory &Memory;
-  std::map<uintptr_t, std::shared_ptr<Breakpoint>> BreakpointsByAddress;
-  std::map<uintptr_t, std::vector<std::shared_ptr<Breakpoint>>>
-      BreakpointsByPage;
+  std::string Exe;
+  std::unique_ptr<MachProcess> Process;
+  std::unique_ptr<Breakpoints> BreakpointsCtrl;
 
 private:
   void StartDebugging();
-  std::shared_ptr<Breakpoint> CreateBreakpoint(vm_address_t Address);
+  void WaitForDyLdToComplete();
+  void HandleContinue();
+  void HandleRun();
 
 public:
-  Debugger(std::string exec)
-      : Prompt("MAD "), Process(exec), Task(Process.GetTask()), Memory(Task.GetMemory()) {}
-  int Start();
+  Debugger() : Prompt("(mad) "), Process(nullptr) {}
+  int Start(int argc, char *argv[]);
 };
 
 } // namespace mad
