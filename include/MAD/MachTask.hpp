@@ -34,13 +34,14 @@ public:
 
   bool IsAttached() { return Port; }
 
-  mach_port_t GetPort() { return Port; }
-
-  bool Suspend();
-  bool Resume();
+  auto GetPID() { return PID; }
+  auto GetPort() { return Port; }
 
   auto &GetMemory() { return Memory; }
   std::vector<MachThread> GetThreads(bool Suspend = false);
+
+  bool Suspend();
+  bool Resume();
 };
 } // namespace mad
 

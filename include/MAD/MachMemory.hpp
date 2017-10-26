@@ -38,6 +38,9 @@ private:
   mach_vm_size_t WriteToRegions(std::vector<MachMemoryRegion> &Regions,
                                 mach_vm_address_t Address, vm_offset_t Data,
                                 mach_msg_type_number_t Size);
+  mach_vm_size_t ReadFromRegions(std::vector<MachMemoryRegion> &Regions,
+                                 mach_vm_address_t Address, vm_offset_t Data,
+                                 mach_msg_type_number_t Size);
 
 public:
   MachMemory() : Port(0), PageSize(0) {}

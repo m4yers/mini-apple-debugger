@@ -122,7 +122,7 @@ public:
   ::mad_unreachable_internal(msg, __FILE__, __LINE__);
 
 static inline void mad_unreachable_internal(const char *msg, const char *file,
-                              unsigned line) {
+                                            unsigned line) {
   if (msg)
     sout.error(msg);
   sout.error("UNREACHABLE executed");

@@ -57,6 +57,7 @@ public:
 
   int Execute();
   bool Attach();
+  void Detach();
   vm_size_t ReadMemory(vm_address_t address, vm_size_t size, void *data);
   vm_size_t WriteMemory(vm_address_t address, vm_offset_t data,
                         mach_msg_type_number_t count);

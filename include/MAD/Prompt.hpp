@@ -115,7 +115,7 @@ public:
   void ShowHelp();
 
   template <typename T, typename... Ts> void Say(T &&p, Ts &&... ps) {
-    std::cout << std::forward<T>(p);
+    std::cout << std::forward<T>(p) << " ";
     sout.print(std::forward<Ts>(ps)...);
   }
   template <typename T> void Say(T &&p) {

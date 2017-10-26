@@ -70,41 +70,6 @@ void Breakpoints::AddBreakpointBySymbolName(std::string SymbolName,
   }
 }
 
-// void Breakpoint::WaitForDyLdToComplete() {
-//   // We search Dynamic Linker in-memory image for the specific function
-//   symbol.
-//   // It is used to sync via breakpoint with a debugger. Once debugger
-//   attaches
-//   // to the process it will stop at _start symbol of the Dynamic Linker, in
-//   // order to skip the DyLD code we need to setup a breakpoint at this
-//   // function. This stub function is run just before executing any user code
-//   // including shared library's init code and C++ static constructors.
-//   auto DyLinkerImage = Process->GetDynamicLinkerImage();
-//   auto DyLinkerNotify = DyLinkerImage->GetSymbolTable().GetSymbolByName(
-//       "__dyld_debugger_notification");
-//
-//   auto DyLinkerNotifyBreakpoint = CreateBreakpoint(DyLinkerNotify->Value);
-//   if (!DyLinkerNotifyBreakpoint->Enable()) {
-//     return;
-//   }
-//
-//   // Wait till we hit that breakpoint
-//   ptrace(PT_CONTINUE, Process->GetPID(), (caddr_t)1, 0);
-//   int wait_status;
-//   wait(&wait_status);
-//
-//   // Remove breakpoint
-//   if (!DyLinkerNotifyBreakpoint->Disable()) {
-//     return;
-//   }
-//
-//   // Move to the start of the symbol
-//   auto &Thread = Process->GetTask().GetThreads().front();
-//   Thread.GetStates();
-//   Thread.ThreadState64()->__rip = DyLinkerNotifyBreakpoint->GetAddress();
-//   Thread.SetStates();
-// }
-
 void AddBreakpointBySymbol(std::string SymbolName, BreakpointBySymbolName_t) {}
 
 void Breakpoints::PreRun() {
@@ -144,6 +109,12 @@ bool Breakpoints::CheckBreakpoints() {
   auto Address = Thread.ThreadState64()->__rip - BREAKPOINT_SIZE;
   if (!BreakpointsByAddress.count(Address)) {
     PRINT_DEBUG("WEIRD, no breakpoints at", HEX(Address));
+    auto Start = Thread.ThreadState64()->__rip - 10;
+    char mem[50];
+    Process.GetTask().GetMemory().Read(Start, 100, mem);
+    for (int i = 0; i < 50; ++i) {
+      PRINT_DEBUG("MEM:", HEX((Start + i)), HEX(mem[i]));
+    }
     return true;
   }
 

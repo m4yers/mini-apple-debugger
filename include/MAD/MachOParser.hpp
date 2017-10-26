@@ -493,8 +493,6 @@ public:
   }
 
   bool Parse() {
-    PRINT_DEBUG("PARSING ", Label, " ...");
-
     uint64_t mainptr = 0;
     Input.seekg(mainptr);
     ReadAThingFromInput(Input, Header);

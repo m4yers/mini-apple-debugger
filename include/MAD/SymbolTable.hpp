@@ -1,6 +1,7 @@
 #ifndef SYMBOLTABLE_HPP_D8BWWYFY
 #define SYMBOLTABLE_HPP_D8BWWYFY
 
+#include <cassert>
 #include <map>
 #include <memory>
 
@@ -20,6 +21,7 @@ public:
   SymbolTable(MachOParser<T> &Parser) : Parser(Parser) {}
 
   void Init() {
+    assert(Parser.SymbolTable);
     for (auto Entry : Parser.SymbolTable->Symbols) {
       SymbolsByName.insert({Entry->Name, Entry});
     }

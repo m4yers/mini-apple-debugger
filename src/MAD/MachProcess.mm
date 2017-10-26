@@ -45,11 +45,12 @@ MachProcess::MachProcess(std::string exec)
 
 void MachProcess::FindAllImages() {
   kern_return_t kern_ret;
-  dyld_process_info info =
+  dyld_process_info Info =
       dyld_process_info_create(Task.GetPort(), 0, &kern_ret);
-  dyld_process_info_for_each_image(info, ^(uint64_t mach_header_addr,
+  dyld_process_info_for_each_image(Info, ^(uint64_t mach_header_addr,
                                            const uuid_t, const char *path) {
-    // SIDE NOTE: Why the fuck I cannot use move-constructor here?
+    // N.B. Why the fuck I cannot use move-constructor here?
+    PRINT_DEBUG("Process image", path, "at", HEX(mach_header_addr));
     auto Image = std::make_shared<MachImage64>(path, Task, mach_header_addr);
     Image->Scan();
     ImagesByName.insert({path, Image});
@@ -61,7 +62,7 @@ void MachProcess::FindAllImages() {
     Images.push_back(Image);
 
   });
-  dyld_process_info_release(info);
+  dyld_process_info_release(Info);
   // for (auto &pair : ImagesByName) {
   //   auto &Image = pair.second;
   //   auto &SymbolTable = Image->GetSymbolTable();
@@ -95,8 +96,6 @@ vm_size_t MachProcess::WriteMemory(vm_address_t address, vm_offset_t data,
 }
 
 int MachProcess::RunTarget() {
-  PRINT_DEBUG("Target started. Will run ", Exec);
-
   if (ptrace(PT_TRACE_ME, 0, 0, 0) < 0) {
     Error::FromErrno().Log("Could not PT_TRACE_ME");
     return 2;
@@ -125,9 +124,14 @@ bool MachProcess::Attach() {
   return true;
 }
 
+void MachProcess::Detach() {
+  assert(PID);
+  Task.Detach();
+}
+
 void MachProcess::Wait(MachProcessStatus &Status) {
   int WaitStatus;
-  wait(&WaitStatus);
+  waitpid(PID, &WaitStatus, 0);
   if (WIFCONTINUED(WaitStatus)) {
     Status.Type = MachProcessStatusType::CONTINUED;
   } else if (WIFSTOPPED(WaitStatus)) {

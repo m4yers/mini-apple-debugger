@@ -21,7 +21,9 @@ bool MachTask::Attach(pid_t pid) {
 
 bool MachTask::Detach() {
   assert(Port);
+  mach_port_deallocate(mach_task_self(), Port);
   PID = {};
+  Port = {};
   Memory.Fini();
   return true;
 }
