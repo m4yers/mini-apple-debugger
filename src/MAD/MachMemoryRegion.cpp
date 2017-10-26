@@ -15,14 +15,15 @@ MachMemoryRegion::MachMemoryRegion(mach_port_t Port,
   Err = mach_vm_region_recurse(Port, &Address, &Size, &Depth,
                                (vm_region_recurse_info_64_t)&Data, &InfoSize);
   if (Err) {
-    Err.Log("Could not get region at", RequestedAddress);
+    Err.Log("Could not get region at", HEX(RequestedAddress), "for PORT", Port);
   } else {
     // It is possible for vm_region_recurse return a region that does not
     // contain requested address. This happens if the requested address points
     // to unmapped part of memory.
     if (RequestedAddress < Address || RequestedAddress >= (Address + Size)) {
       Err = Error(MAD_ERROR_MEMORY);
-      Err.Log("Requested address is not part of any region");
+      Err.Log("Requested address ", HEX(Address),
+              "is not part of any region of PORT", Port);
     } else {
       CurrentProtection = Data.protection;
       MaximumProtection = Data.max_protection;

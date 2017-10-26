@@ -91,16 +91,58 @@ MachMemory::WriteToRegions(std::vector<MachMemoryRegion> &Regions,
   return Written;
 }
 
-mach_vm_size_t MachMemory::Read(mach_vm_address_t Address, mach_vm_size_t size,
+mach_vm_size_t
+MachMemory::ReadFromRegions(std::vector<MachMemoryRegion> &Regions,
+                            mach_vm_address_t Address, vm_offset_t Data,
+                            mach_msg_type_number_t Size) {
+  // Before we write anything a proper protection level must be set on ALL the
+  // regions at the same time.  If some region does not allow write permissions
+  // we cannot continue. Protection level will be restored once the region
+  // object destoyed.
+  for (auto &Region : Regions) {
+    if (!Region.SetProtection(VM_PROT_READ)) {
+      return 0;
+    }
+  }
+
+  mach_vm_size_t Written = 0;
+  for (auto &Region : Regions) {
+    assert(Size);
+    mach_vm_address_t ToRead = Region.GetFollowingAddress() - Address;
+    if (ToRead > Size) {
+      ToRead = Size;
+    }
+
+    mach_vm_size_t BufferSize = ToRead;
+    if (Error Err = mach_vm_read_overwrite(
+            Port, Address, ToRead, (mach_vm_address_t)Data, &BufferSize)) {
+      // TODO: Specify which region failed
+      Err.Log("At", HEX(Address), "writing", Size, "bytes");
+      return Written;
+    }
+
+    Written += ToRead;
+    Address += ToRead;
+    Data += ToRead;
+    Size -= ToRead;
+  }
+
+  return Written;
+}
+
+mach_vm_size_t MachMemory::Read(mach_vm_address_t Address, mach_vm_size_t Size,
                                 void *Data) {
   assert(Port);
-  mach_vm_size_t Size;
-  if (Error Err = mach_vm_read_overwrite(Port, Address, size,
-                                         (mach_vm_address_t)Data, &Size)) {
-    Err.Log("At", HEX(Address), "reading", size, "bytes");
+
+  std::vector<MachMemoryRegion> Regions = GetRegions(Address, Size);
+  if (!Regions.back().IsValid()) {
+    Error Err(MAD_ERROR_MEMORY);
+    Err.Log("Cannot use memory pointed by ", HEX(Address), "-",
+            HEX((Address + Size - 1)));
     return 0;
   }
-  return Size;
+
+  return ReadFromRegions(Regions, Address, (vm_offset_t)Data, Size);
 }
 
 mach_vm_size_t MachMemory::Write(mach_vm_address_t Address, vm_offset_t Data,
@@ -110,7 +152,8 @@ mach_vm_size_t MachMemory::Write(mach_vm_address_t Address, vm_offset_t Data,
   std::vector<MachMemoryRegion> Regions = GetRegions(Address, Size);
   if (!Regions.back().IsValid()) {
     Error Err(MAD_ERROR_MEMORY);
-    Err.Log("Cannot use a memory region pointed of ", Address, "-", Address + Size);
+    Err.Log("Cannot use memory pointed by ", HEX(Address), "-",
+            HEX((Address + Size - 1)));
     return 0;
   }
 
