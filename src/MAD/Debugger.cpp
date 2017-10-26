@@ -49,8 +49,13 @@ void Debugger::HandleContinue() {
       break;
     case MachProcessStatusType::STOPPED:
       // FIXME handle signals
-      PRINT_DEBUG("SIGNAL: ", Status.StopSignal);
-      Continue = BreakpointsCtrl->CheckBreakpoints();
+      switch (Status.StopSignal) {
+      case SIGTRAP:
+        Continue = BreakpointsCtrl->CheckBreakpoints();
+        break;
+      default:
+        mad_unreachable("Other signals not implemented");
+      }
       break;
     }
   }
