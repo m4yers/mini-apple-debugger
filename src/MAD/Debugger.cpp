@@ -22,7 +22,7 @@ char regs_x86_64[][7] = {"rax", "rbx", "rcx", "rdx",    "rdi", "rsi", "rbp",
 
 using namespace mad;
 
-void Debugger::HandleContinue() {
+void Debugger::HandleProcessContinue() {
   if (!Process) {
     Prompt.Say("You must run the program first");
     return;
@@ -60,7 +60,7 @@ void Debugger::HandleContinue() {
     }
   }
 }
-void Debugger::HandleRun() {
+void Debugger::HandleProcessRun() {
   Process = std::make_unique<MachProcess>(Exe);
 
   PRINT_DEBUG("Spawning", Exe, "...");
@@ -92,7 +92,17 @@ void Debugger::HandleRun() {
   BreakpointsCtrl = std::make_unique<Breakpoints>(*Process.get());
   BreakpointsCtrl->PreRun();
 
-  HandleContinue();
+  HandleProcessContinue();
+}
+
+void Debugger::HandleBreakpointSet(
+    const std::shared_ptr<PromptCmdBreakpointSet> &BPS) {
+  if (BPS->SymbolName) {
+    PRINT_DEBUG("SET TO", BPS->SymbolName.Get());
+  }
+  if (BPS->MethodName) {
+    PRINT_DEBUG("SET TO", BPS->MethodName.Get());
+  }
 }
 
 int Debugger::Start(int argc, char *argv[]) {
@@ -112,36 +122,30 @@ int Debugger::Start(int argc, char *argv[]) {
 
     if (!Cmd) {
       Error Err(MAD_ERROR_PROMPT);
-      Err.Log("Unknow command...");
+      Err.Log("Unknown command...");
       continue;
     }
 
     switch (Cmd->GetType()) {
-    case PromptCmdType::EXIT:
+    case PromptCmdType::MAD_EXIT:
       return 0;
       break;
-    case PromptCmdType::HELP:
-      Prompt.ShowHelp();
+    case PromptCmdType::MAD_HELP:
+      Prompt.ShowCommands();
       break;
 
-    case PromptCmdType::RUN:
-      HandleRun();
+    case PromptCmdType::PROCESS_RUN:
+      HandleProcessRun();
       break;
 
-    case PromptCmdType::CONTINUE:
-      HandleContinue();
+    case PromptCmdType::PROCESS_CONTINUE:
+      HandleProcessContinue();
       break;
 
     case PromptCmdType::BREAKPOINT_SET:
       PRINT_DEBUG("GOT BREAKPOINT");
-      auto BreakpointSet =
-          std::static_pointer_cast<PromptCmdBreakpointSet>(Cmd);
-      if (BreakpointSet->SymbolName) {
-        PRINT_DEBUG("SET TO", args::get(BreakpointSet->SymbolName));
-      }
-      if (BreakpointSet->MethodName) {
-        PRINT_DEBUG("SET TO", args::get(BreakpointSet->MethodName));
-      }
+      HandleBreakpointSet(
+          std::static_pointer_cast<PromptCmdBreakpointSet>(Cmd));
       break;
     }
   }

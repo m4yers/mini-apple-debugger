@@ -32,16 +32,22 @@ static inline std::string PromptCmdGroupToString(PromptCmdGroup Group) {
   }
 }
 
-enum class PromptCmdType { EXIT, HELP, RUN, BREAKPOINT_SET, CONTINUE };
+enum class PromptCmdType {
+  MAD_EXIT,
+  MAD_HELP,
+  BREAKPOINT_SET,
+  PROCESS_RUN,
+  PROCESS_CONTINUE
+};
 static inline std::string PromptCmdTypeToString(PromptCmdType Type) {
   switch (Type) {
-  case PromptCmdType::EXIT:
+  case PromptCmdType::MAD_EXIT:
     return "exit";
-  case PromptCmdType::HELP:
+  case PromptCmdType::MAD_HELP:
     return "help";
-  case PromptCmdType::RUN:
+  case PromptCmdType::PROCESS_RUN:
     return "run";
-  case PromptCmdType::CONTINUE:
+  case PromptCmdType::PROCESS_CONTINUE:
     return "continue";
   case PromptCmdType::BREAKPOINT_SET:
     return "set";
@@ -55,7 +61,8 @@ class PromptCmd {
 protected:
   Error Err;
   args::ArgumentParser Parser;
-  args::HelpFlag Help{Parser, "HELP", "Show this help menu.", {'h', "help"}};
+  args::HelpFlag Help{
+      Parser, "MAD_HELP", "Show command help.", {'h', "help"}};
   PromptCmdGroup Group;
   PromptCmdType Type;
   std::string Name;
@@ -80,13 +87,14 @@ public:
 class PromptCmdMadHelp : public PromptCmd {
 public:
   PromptCmdMadHelp()
-      : PromptCmd(PromptCmdGroup::MAD, PromptCmdType::CONTINUE, "help", "?") {}
+      : PromptCmd(PromptCmdGroup::MAD, PromptCmdType::MAD_HELP, "help",
+                  "?") {}
 };
 
 class PromptCmdMadExit : public PromptCmd {
 public:
   PromptCmdMadExit()
-      : PromptCmd(PromptCmdGroup::MAD, PromptCmdType::EXIT, "exit", "e") {}
+      : PromptCmd(PromptCmdGroup::MAD, PromptCmdType::MAD_EXIT, "exit", "e") {}
 };
 
 //-----------------------------------------------------------------------------
@@ -95,7 +103,7 @@ public:
 class PromptCmdBreakpointSet : public PromptCmd {
 public:
   args::Group TargetGroup{Parser, "One of these must be specified",
-                          args::Group::Validators::AtLeastOne};
+                          args::Group::Validators::Xor};
   args::ValueFlag<std::string> SymbolName{
       TargetGroup, "SYMBOL", "Name of a symbol", {'n', "name"}};
   args::ValueFlag<std::string> MethodName{
@@ -113,14 +121,15 @@ public:
 class PromptCmdProcessRun : public PromptCmd {
 public:
   PromptCmdProcessRun()
-      : PromptCmd(PromptCmdGroup::PROCESS, PromptCmdType::RUN, "run", "r") {}
+      : PromptCmd(PromptCmdGroup::PROCESS, PromptCmdType::PROCESS_RUN, "run",
+                  "r") {}
 };
 
 class PromptCmdProcessContinue : public PromptCmd {
 public:
   PromptCmdProcessContinue()
-      : PromptCmd(PromptCmdGroup::PROCESS, PromptCmdType::CONTINUE, "continue",
-                  "c") {}
+      : PromptCmd(PromptCmdGroup::PROCESS, PromptCmdType::PROCESS_CONTINUE,
+                  "continue", "c") {}
 };
 
 //------------------------------------------------------------------------------
@@ -128,18 +137,24 @@ public:
 //------------------------------------------------------------------------------
 class Prompt {
   std::string Name;
+  std::vector<std::shared_ptr<PromptCmd>> Commands;
   std::map<std::string, std::shared_ptr<PromptCmd>> ShortcutToCommand;
+  std::map<std::string, std::map<std::string, std::shared_ptr<PromptCmd>>>
+      GroupToCommands;
 
 private:
   void AddCommand(std::shared_ptr<PromptCmd> Cmd) {
     if (Cmd->Shortcut.size()) {
       ShortcutToCommand.emplace(Cmd->Shortcut, Cmd);
     }
+    GroupToCommands[PromptCmdGroupToString(Cmd->Group)][Cmd->Name] = Cmd;
+    Commands.push_back(Cmd);
   }
 
 public:
   Prompt(std::string Name);
   std::shared_ptr<PromptCmd> Show();
+  void ShowCommands();
   void ShowHelp();
 
   template <typename T, typename... Ts> void Say(T &&p, Ts &&... ps) {

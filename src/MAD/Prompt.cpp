@@ -64,15 +64,45 @@ std::shared_ptr<PromptCmd> Prompt::Show() {
 
   if (ShortcutToCommand.count(First)) {
     Cmd = ShortcutToCommand.at(First);
+  } else if (GroupToCommands.count(First) &&
+             GroupToCommands[First].count(Tokens.front())) {
+    Cmd = GroupToCommands[First][Tokens.front()];
+    Tokens.pop_front();
   }
 
   if (Cmd && Cmd->Parse(Tokens)) {
-    PRINT_DEBUG("PROMT CHOSES", Cmd->Name);
     return Cmd;
   }
 
   return nullptr;
 }
+
+void Prompt::ShowCommands() {
+  Say("");
+  Say("Debugger commands:");
+  for (auto &GroupPair : GroupToCommands) {
+    for (auto &CmdPair : GroupPair.second) {
+      printf("  %-20s -- %s\n", (GroupPair.first + " " + CmdPair.first).c_str(),
+             CmdPair.second->Desc.c_str());
+    }
+  }
+  Say("");
+  Say("Commands shortcuts:");
+  for (auto &ShortPair : ShortcutToCommand) {
+    auto Group = PromptCmdGroupToString(ShortPair.second->Group).c_str();
+    auto Name = ShortPair.second->Name.c_str();
+    auto Short = ShortPair.second->Shortcut.c_str();
+    printf("  %-10s -- %s %s\n", Short, Group, Name);
+  }
+}
+
 void Prompt::ShowHelp() {
-  // TODO: Help here
+  for (auto &GroupPair : GroupToCommands) {
+    Say("");
+    Say("GROUP", GroupPair.first);
+    for (auto &CmdPair : GroupPair.second) {
+      Say("  COMMAND", CmdPair.first);
+      CmdPair.second->Parser.Help(std::cout);
+    }
+  }
 }

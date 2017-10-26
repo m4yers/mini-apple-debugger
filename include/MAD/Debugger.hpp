@@ -26,8 +26,11 @@ private:
 private:
   void StartDebugging();
   void WaitForDyLdToComplete();
-  void HandleContinue();
-  void HandleRun();
+
+  void HandleProcessContinue();
+  void HandleProcessRun();
+
+  void HandleBreakpointSet(const std::shared_ptr<PromptCmdBreakpointSet> &BPS);
 
 public:
   Debugger() : Prompt("(mad) "), Process(nullptr) {}
