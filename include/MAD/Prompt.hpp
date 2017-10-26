@@ -9,6 +9,7 @@
 #include <vector>
 
 // Prompt
+#include "args/args.hxx"
 #include "linenoise/linenoise.h"
 
 // MAD
@@ -31,22 +32,30 @@ static inline std::string PromptCmdGroupToString(PromptCmdGroup Group) {
   }
 }
 
-enum class PromptCmdType { EXIT, HELP, RUN, CONTINUE };
+enum class PromptCmdType { EXIT, HELP, RUN, BREAKPOINT_SET, CONTINUE };
 static inline std::string PromptCmdTypeToString(PromptCmdType Type) {
   switch (Type) {
+  case PromptCmdType::EXIT:
+    return "exit";
   case PromptCmdType::HELP:
     return "help";
   case PromptCmdType::RUN:
     return "run";
   case PromptCmdType::CONTINUE:
     return "continue";
+  case PromptCmdType::BREAKPOINT_SET:
+    return "set";
   }
 }
 
 class Prompt;
 class PromptCmd {
   friend Prompt;
+
+protected:
   Error Err;
+  args::ArgumentParser Parser;
+  args::HelpFlag Help{Parser, "HELP", "Show this help menu.", {'h', "help"}};
   PromptCmdGroup Group;
   PromptCmdType Type;
   std::string Name;
@@ -56,41 +65,60 @@ class PromptCmd {
 public:
   PromptCmd(PromptCmdGroup Group, PromptCmdType Type, std::string Name,
             std::string Shortcut = nullptr, std::string Desc = "")
-      : Group(Group), Type(Type), Name(Name), Shortcut(Shortcut), Desc(Desc) {}
-  void Parse(std::deque<std::string> Tokens) {
-    Err = Error(MAD_ERROR_PROMPT);
-    Err.Log("The", PromptCmdGroupToString(Group), PromptCmdTypeToString(Type),
-            "command does not take any arguments.");
-  }
+      : Parser(Desc), Group(Group), Type(Type), Name(Name), Shortcut(Shortcut),
+        Desc(Desc) {}
+  bool Parse(std::deque<std::string> &Arguments);
   auto GetGroup() { return Group; }
   auto GetType() { return Type; }
   bool IsValid() { return Err.Success(); }
   void PrintHelp() {}
 };
 
-class PromptCmdHelp : public PromptCmd {
+//-----------------------------------------------------------------------------
+// MAD
+//-----------------------------------------------------------------------------
+class PromptCmdMadHelp : public PromptCmd {
 public:
-  PromptCmdHelp()
+  PromptCmdMadHelp()
       : PromptCmd(PromptCmdGroup::MAD, PromptCmdType::CONTINUE, "help", "?") {}
 };
 
-class PromptCmdExit : public PromptCmd {
+class PromptCmdMadExit : public PromptCmd {
 public:
-  PromptCmdExit()
-      : PromptCmd(PromptCmdGroup::MAD, PromptCmdType::EXIT, "exit",
-                  "e") {}
+  PromptCmdMadExit()
+      : PromptCmd(PromptCmdGroup::MAD, PromptCmdType::EXIT, "exit", "e") {}
 };
 
-class PromptCmdRun : public PromptCmd {
+//-----------------------------------------------------------------------------
+// Breakpoint
+//-----------------------------------------------------------------------------
+class PromptCmdBreakpointSet : public PromptCmd {
 public:
-  PromptCmdRun()
-      : PromptCmd(PromptCmdGroup::PROCESS, PromptCmdType::RUN, "run",
-                  "r") {}
+  args::Group TargetGroup{Parser, "One of these must be specified",
+                          args::Group::Validators::AtLeastOne};
+  args::ValueFlag<std::string> SymbolName{
+      TargetGroup, "SYMBOL", "Name of a symbol", {'n', "name"}};
+  args::ValueFlag<std::string> MethodName{
+      TargetGroup, "METHOD", "Name of a method", {'m', "method"}};
+
+public:
+  PromptCmdBreakpointSet()
+      : PromptCmd(PromptCmdGroup::BREAKPOINT, PromptCmdType::BREAKPOINT_SET,
+                  "set", "b") {}
 };
 
-class PromptCmdContinue : public PromptCmd {
+//-----------------------------------------------------------------------------
+// Process
+//-----------------------------------------------------------------------------
+class PromptCmdProcessRun : public PromptCmd {
 public:
-  PromptCmdContinue()
+  PromptCmdProcessRun()
+      : PromptCmd(PromptCmdGroup::PROCESS, PromptCmdType::RUN, "run", "r") {}
+};
+
+class PromptCmdProcessContinue : public PromptCmd {
+public:
+  PromptCmdProcessContinue()
       : PromptCmd(PromptCmdGroup::PROCESS, PromptCmdType::CONTINUE, "continue",
                   "c") {}
 };

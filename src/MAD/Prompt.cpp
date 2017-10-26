@@ -6,11 +6,30 @@
 
 using namespace mad;
 
+bool PromptCmd::Parse(std::deque<std::string> &Arguments) {
+  try {
+    Parser.ParseArgs(Arguments.begin(), Arguments.end());
+  } catch (args::Help) {
+    std::cout << Parser;
+    return false;
+  } catch (args::ParseError e) {
+    std::cerr << e.what() << std::endl;
+    std::cerr << Parser;
+    return false;
+  } catch (args::ValidationError e) {
+    std::cerr << e.what() << std::endl;
+    std::cerr << Parser;
+    return false;
+  }
+  return true;
+}
+
 Prompt::Prompt(std::string Name) : Name(Name) {
-  AddCommand(std::make_shared<PromptCmdHelp>());
-  AddCommand(std::make_shared<PromptCmdExit>());
-  AddCommand(std::make_shared<PromptCmdRun>());
-  AddCommand(std::make_shared<PromptCmdContinue>());
+  AddCommand(std::make_shared<PromptCmdMadHelp>());
+  AddCommand(std::make_shared<PromptCmdMadExit>());
+  AddCommand(std::make_shared<PromptCmdBreakpointSet>());
+  AddCommand(std::make_shared<PromptCmdProcessRun>());
+  AddCommand(std::make_shared<PromptCmdProcessContinue>());
 }
 
 static inline std::deque<std::string> Tokenize(std::string String,
@@ -47,7 +66,7 @@ std::shared_ptr<PromptCmd> Prompt::Show() {
     Cmd = ShortcutToCommand.at(First);
   }
 
-  if (Cmd) {
+  if (Cmd && Cmd->Parse(Tokens)) {
     PRINT_DEBUG("PROMT CHOSES", Cmd->Name);
     return Cmd;
   }

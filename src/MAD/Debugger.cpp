@@ -131,6 +131,18 @@ int Debugger::Start(int argc, char *argv[]) {
     case PromptCmdType::CONTINUE:
       HandleContinue();
       break;
+
+    case PromptCmdType::BREAKPOINT_SET:
+      PRINT_DEBUG("GOT BREAKPOINT");
+      auto BreakpointSet =
+          std::static_pointer_cast<PromptCmdBreakpointSet>(Cmd);
+      if (BreakpointSet->SymbolName) {
+        PRINT_DEBUG("SET TO", args::get(BreakpointSet->SymbolName));
+      }
+      if (BreakpointSet->MethodName) {
+        PRINT_DEBUG("SET TO", args::get(BreakpointSet->MethodName));
+      }
+      break;
     }
   }
 
