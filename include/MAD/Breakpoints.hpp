@@ -9,81 +9,160 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <set>
 
 // MAD
 #include "MAD/MachMemory.hpp"
 #include "MAD/MachProcess.hpp"
 
+// This class-set describes breakpoints you can set during mad-debugging. There
+// is three levels to implement breakpoints:
+//
+//   - Input/Pending breakpoints, here they are called Seeds. Their role is to
+//     provide high level breakpoint support, e.g. break-on-symbol,
+//     break-on-address, break-on-regex etc.
+//   - Virtual breakpoints, this is what user-layer breakpoints resolve into.
+//     Because there is a possibility of user breakpoints overlap there is
+//     many-to-many relationship between Seeds and v-points.
+//   - Actual breakpoints, these are actual software breakpoints mad is using
+//     to stop execution. There can be only one per address, but multiple
+//     v-points can reference a single a-point; if the count value is > 0
+//     the breakpoint is set and active, otherwise it is not.
+//
+// Here is aa example of this scheme:
+//
+//    Input                       Virtual               Actual
+//
+//  [1] break-on-address ------ [1] An Address ------ [1] Count: 2 -> Enabled
+//                                              ____/
+//                                             /
+//  [2] break-on-symbol  ------ [2] A Symbol        - [2] Count: 1 -> Enabled
+//                        ____/                ____/
+//                       /                    /
+//  [3] break-on-regex   ------ [3] A Symbol -        [3] Count: 0 -> Disabled
 namespace mad {
 
+// FIXME Need a better system here. How to handle user/system breakpoints?
 enum class BreakpointCallbackReturn {
+  CONTINUE,
+  MOVE_TO_BREAKPOINT,
   REMOVE,
   REMOVE_CONTINUE,
   STEP_OVER,
   STEP_OVER_CONTINUE
 };
 
-using BreakpointByAddress_t =
+using BreakpointByAddressCallback_t =
     std::function<BreakpointCallbackReturn(vm_address_t)>;
-using BreakpointBySymbolName_t =
+using BreakpointBySymbolNameCallback_t =
     std::function<BreakpointCallbackReturn(std::string)>;
 
-enum class BreakpointType { Address, Symbol };
-class BreakpointSeedAddress {
+enum class SeedType { ADDRESS, SYMBOL };
+class Seed {
 public:
-  BreakpointByAddress_t Callback;
-  vm_address_t Address;
+  SeedType Type;
+  bool IsActive;
+  Seed(SeedType Type) : Type(Type), IsActive(true) {}
 };
-class BreakpointSeedSymbol {
+class SeedAddress : public Seed {
 public:
-  BreakpointBySymbolName_t Callback;
-  // FIXME: Not cool, do something here...
-  std::shared_ptr<MachOParser64::MachOSymbolTableEntry> Symbol;
+  BreakpointByAddressCallback_t Callback;
+  vm_address_t Address;
+  SeedAddress() : Seed(SeedType::ADDRESS) {}
+};
+class SeedSymbolName : public Seed {
+public:
+  BreakpointBySymbolNameCallback_t Callback;
+  std::string SymbolName;
+  SeedSymbolName() : Seed(SeedType::SYMBOL) {}
 };
 
+using Seed_sp = std::shared_ptr<Seed>;
+using SeedAddress_sp = std::shared_ptr<SeedAddress>;
+using SeedSymbolName_sp = std::shared_ptr<SeedSymbolName>;
+
+enum class BreakpointStatus { UNKNOWN, PENDING, SET, DISABLED };
+
+// TODO: Add Virtual breakpoints overlay to handle many-to-many seed/breakpoints rel.
 class Breakpoint {
 public:
-  BreakpointType Type;
-  std::experimental::any Seed;
+  Seed_sp Seed;
   MachMemory &Memory;
   uint64_t Address;
   uintptr_t Original;
+  bool IsActive;
 
 public:
-  template <typename S>
-  Breakpoint(BreakpointType Type, S Seed, MachMemory &Memory,
-             vm_address_t Address)
-      : Type(Type), Seed(Seed), Memory(Memory), Address(Address) {}
+  Breakpoint(Seed_sp Seed, MachMemory &Memory, vm_address_t Address)
+      : Seed(Seed), Memory(Memory), Address(Address), IsActive(false) {}
+  // Normally destruction must lead to Breakpoint removal, but during detach
+  // process no longer exists and mach port is no longer valid. At this point
+  // we just do nothing.  Other Breakpoint removal cases are handled explicitly
+  // throughout code
+  // ~Breakpoint() {
+  //   if (IsActive) {
+  //     Disable();
+  //   }
+  // }
 
-  bool IsEnabled();
   auto GetAddress() { return Address; }
 
   bool Enable();
   bool Disable();
 };
 
+using Breakpoint_sp = std::shared_ptr<Breakpoint>;
+
 class Breakpoints {
-  MachProcess &Process;
-  std::map<uintptr_t, std::shared_ptr<Breakpoint>> BreakpointsByAddress;
-  std::map<uintptr_t, std::vector<std::shared_ptr<Breakpoint>>>
-      BreakpointsByPage;
+  std::shared_ptr<MachProcess> Process;
 
-public:
-  Breakpoints(MachProcess &Process) : Process(Process) {}
+  // All available seeds
+  std::vector<Seed_sp> Seeds;
 
-  void AddBreakpointByAddress(vm_address_t Address, BreakpointByAddress_t);
-  void AddBreakpointBySymbolName(std::string SymbolName,
-                                 BreakpointBySymbolName_t);
+  // These are type seed type specific maps, each seed is access via its
+  // distinc characteristic, e.g. address or symbol name.
+  std::map<uint64_t, SeedAddress_sp> SeedsByAddress;
+  std::map<std::string, SeedSymbolName_sp> SeedsBySymbolName;
 
-  void PreRun();
-  void PostRun();
-  bool CheckBreakpoints();
+  // Maps active/idle seeds to existing breakpoints. There can be multiple
+  // breakpoints belonging to a single seed, e.g. regex matching.
+  std::map<Seed_sp, std::vector<Breakpoint_sp>> SeedToBreapoints;
+
+  // These are seeds that yet to become breakpoints, given they are still
+  // active.
+  std::set<Seed_sp> PendingSeeds;
+
+  std::map<uint64_t, Breakpoint_sp> BreakpointsByAddress;
+  std::map<uint64_t, std::vector<Breakpoint_sp>> BreakpointsByPage;
 
 private:
-  void AddBreakpoint(std::shared_ptr<Breakpoint>);
+  Seed_sp GetSeedByAddress(uint64_t, BreakpointByAddressCallback_t);
+  Seed_sp GetSeedBySymbolName(std::string, BreakpointBySymbolNameCallback_t);
+
+  bool ApplyBreakpoint(Breakpoint_sp &);
+  bool ApplyPendingSeed(Seed_sp &);
+
+  void RemoveBreakpoint(Breakpoint_sp &);
+
   void HandleDebuggerNotification();
-  void HandleRemove(std::shared_ptr<Breakpoint> &);
-  void HandleStepOver(std::shared_ptr<Breakpoint> &);
+  void HandleMoveToBreakPoint(Breakpoint_sp &);
+  void HandleRemove(Breakpoint_sp &);
+  void HandleStepOver(Breakpoint_sp &);
+
+  Breakpoint_sp GetCurrentBreakpoint();
+
+public:
+  bool AddBreakpointByAddress(vm_address_t Address,
+                              BreakpointByAddressCallback_t);
+  BreakpointStatus AddBreakpointBySymbolName(std::string SymbolName,
+                                             BreakpointBySymbolNameCallback_t);
+  void RemoveBreakpointBySymbolName(std::string SymbolName);
+
+  void Attach(std::shared_ptr<MachProcess> Process);
+  void Detach();
+  bool CheckBreakpoints();
+  bool StandingOnBreakpoint();
+  bool StepOverCurrentBreakpoint();
 };
 } // namespace mad
 

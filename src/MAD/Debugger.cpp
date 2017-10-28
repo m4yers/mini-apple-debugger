@@ -30,6 +30,9 @@ void Debugger::HandleProcessContinue() {
 
   bool Continue = true;
   while (Continue) {
+    if (BreakpointsCtrl.StandingOnBreakpoint()) {
+      BreakpointsCtrl.StepOverCurrentBreakpoint();
+    }
     Continue = false;
     auto Status = Process->Continue();
     switch (Status.Type) {
@@ -40,9 +43,9 @@ void Debugger::HandleProcessContinue() {
       break;
     case MachProcessStatusType::EXITED:
       Prompt.Say("Program", Exe, "finished with status", Status.ExitStatus);
-      BreakpointsCtrl.release();
+      BreakpointsCtrl.Detach();
       Process->Detach();
-      Process.release();
+      Process = nullptr;
       break;
     case MachProcessStatusType::SIGNALED:
       Prompt.Say("Program", Exe, "signaled");
@@ -51,16 +54,23 @@ void Debugger::HandleProcessContinue() {
       // FIXME handle signals
       switch (Status.StopSignal) {
       case SIGTRAP:
-        Continue = BreakpointsCtrl->CheckBreakpoints();
+        Continue = BreakpointsCtrl.CheckBreakpoints();
         break;
       default:
+        PRINT_DEBUG("Unhandled signal", Status.StopSignal);
         mad_unreachable("Other signals not implemented");
       }
       break;
     }
   }
 }
+
 void Debugger::HandleProcessRun() {
+  if (Process) {
+    Prompt.Say("Program", Exe, "is already running...");
+    return;
+  }
+
   Process = std::make_unique<MachProcess>(Exe);
 
   PRINT_DEBUG("Spawning", Exe, "...");
@@ -89,8 +99,7 @@ void Debugger::HandleProcessRun() {
   }
   PRINT_DEBUG("Done");
 
-  BreakpointsCtrl = std::make_unique<Breakpoints>(*Process.get());
-  BreakpointsCtrl->PreRun();
+  BreakpointsCtrl.Attach(Process);
 
   HandleProcessContinue();
 }
@@ -99,10 +108,18 @@ void Debugger::HandleBreakpointSet(
     const std::shared_ptr<PromptCmdBreakpointSet> &BPS) {
   if (BPS->SymbolName) {
     PRINT_DEBUG("SET TO", BPS->SymbolName.Get());
+    BreakpointsCtrl.AddBreakpointBySymbolName(BPS->SymbolName.Get(),
+                                              HandleSymbolNameBreakpoint_l);
   }
   if (BPS->MethodName) {
     PRINT_DEBUG("SET TO", BPS->MethodName.Get());
   }
+}
+
+BreakpointCallbackReturn
+Debugger::HandleSymbolNameBreakpoint(std::string SymbolName) {
+  PRINT_DEBUG("BREAK ON", SymbolName);
+  return BreakpointCallbackReturn::MOVE_TO_BREAKPOINT;
 }
 
 int Debugger::Start(int argc, char *argv[]) {
@@ -143,7 +160,6 @@ int Debugger::Start(int argc, char *argv[]) {
       break;
 
     case PromptCmdType::BREAKPOINT_SET:
-      PRINT_DEBUG("GOT BREAKPOINT");
       HandleBreakpointSet(
           std::static_pointer_cast<PromptCmdBreakpointSet>(Cmd));
       break;

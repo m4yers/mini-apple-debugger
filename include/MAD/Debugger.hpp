@@ -20,17 +20,17 @@ class Debugger {
 private:
   Prompt Prompt;
   std::string Exe;
-  std::unique_ptr<MachProcess> Process;
-  std::unique_ptr<Breakpoints> BreakpointsCtrl;
+  std::shared_ptr<MachProcess> Process;
+  Breakpoints BreakpointsCtrl;
 
 private:
-  void StartDebugging();
-  void WaitForDyLdToComplete();
-
   void HandleProcessContinue();
   void HandleProcessRun();
 
   void HandleBreakpointSet(const std::shared_ptr<PromptCmdBreakpointSet> &BPS);
+  BreakpointCallbackReturn HandleSymbolNameBreakpoint(std::string);
+  BreakpointBySymbolNameCallback_t HandleSymbolNameBreakpoint_l =
+      [this](const auto &a) { return HandleSymbolNameBreakpoint(a); };
 
 public:
   Debugger() : Prompt("(mad) "), Process(nullptr) {}

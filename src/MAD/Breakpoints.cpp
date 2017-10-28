@@ -7,6 +7,8 @@ using namespace mad;
 #define BREAKPOINT_SIZE 1ul
 
 bool Breakpoint::Enable() {
+  assert(!IsActive);
+
   if (Memory.Read(Address, sizeof(Original), &Original) != sizeof(Original)) {
     Error Err(MAD_ERROR_BREAKPOINT);
     Err.Log("Could not set breakpoint at", HEX(Address));
@@ -22,10 +24,14 @@ bool Breakpoint::Enable() {
     return false;
   }
 
+  IsActive = true;
   return true;
 }
 
 bool Breakpoint::Disable() {
+  assert(IsActive);
+
+  // TODO before writing, read current value so it won't overwrite other breakpoint
   if (Memory.Write(Address, (vm_offset_t)&Original, sizeof(Original)) !=
       sizeof(Original)) {
     Error Err(MAD_ERROR_BREAKPOINT);
@@ -33,105 +39,226 @@ bool Breakpoint::Disable() {
     return false;
   }
 
+  IsActive = false;
   return true;
 }
 
-void Breakpoints::AddBreakpoint(std::shared_ptr<Breakpoint> BP) {
-  auto &Memory = Process.GetTask().GetMemory();
+Seed_sp Breakpoints::GetSeedByAddress(uint64_t, BreakpointByAddressCallback_t) {
+  mad_not_implemented();
+}
+
+Seed_sp
+Breakpoints::GetSeedBySymbolName(std::string Name,
+                                 BreakpointBySymbolNameCallback_t Callback) {
+  if (SeedsBySymbolName.count(Name)) {
+    return std::static_pointer_cast<Seed>(SeedsBySymbolName.at(Name));
+  }
+
+  SeedSymbolName_sp SymbolSeed = std::make_shared<SeedSymbolName>();
+  SymbolSeed->Callback = Callback;
+  SymbolSeed->SymbolName = Name;
+  SeedsBySymbolName.emplace(Name, SymbolSeed);
+  Seeds.push_back(SymbolSeed);
+  return std::static_pointer_cast<Seed>(SymbolSeed);
+}
+
+bool Breakpoints::ApplyBreakpoint(Breakpoint_sp &BP) {
+  if (BreakpointsByAddress.count(BP->Address)) {
+    return false;
+  }
+
+  PRINT_DEBUG("ADD BP AT", HEX(BP->GetAddress()));
+  auto &Memory = Process->GetTask().GetMemory();
   auto PageSize = Memory.GetPageSize();
   auto PageMask = ~(PageSize - 1);
   auto Address = BP->GetAddress();
   BreakpointsByPage[Address & PageMask].push_back(BP);
   BreakpointsByAddress.insert({Address, BP});
-  // FIXME: Add proper handling of breakpoints on code that is not loaded yet
   BP->Enable();
+  return true;
 }
 
-void Breakpoints::AddBreakpointByAddress(vm_address_t Address,
-                                         BreakpointByAddress_t Callback) {}
+void Breakpoints::RemoveBreakpoint(Breakpoint_sp &BP) {
+  if (BP->IsActive) {
+    BP->Disable();
+  }
+  auto &Memory = Process->GetTask().GetMemory();
+  auto PageSize = Memory.GetPageSize();
+  auto PageMask = ~(PageSize - 1);
+  auto Address = BP->GetAddress();
+  BreakpointsByPage.erase(Address & PageMask);
+  BreakpointsByAddress.erase(Address);
+}
 
-void Breakpoints::AddBreakpointBySymbolName(std::string SymbolName,
-                                            BreakpointBySymbolName_t Callback) {
-  for (auto &Image : Process.GetImagess()) {
-    auto &SymbolTable = Image->GetSymbolTable();
-    auto Symbol = SymbolTable.GetSymbolByName(SymbolName);
-    if (!Symbol) {
-      continue;
+bool Breakpoints::ApplyPendingSeed(Seed_sp &Seed) {
+  if (!Process) {
+    return false;
+  }
+
+  switch (Seed->Type) {
+  case SeedType::ADDRESS: {
+    PRINT_DEBUG("ADDRESS");
+    mad_not_implemented();
+    break;
+  }
+  case SeedType::SYMBOL: {
+    auto SymbolSeed = std::static_pointer_cast<SeedSymbolName>(Seed);
+    for (auto &Image : Process->GetImagess()) {
+      auto &SymbolTable = Image->GetSymbolTable();
+      auto Symbol = SymbolTable.GetSymbolByName(SymbolSeed->SymbolName);
+      if (!Symbol) {
+        continue;
+      }
+
+      auto &Memory = Process->GetTask().GetMemory();
+      auto NewBreakpoint =
+          std::make_shared<Breakpoint>(Seed, Memory, Symbol->Value);
+      if (ApplyBreakpoint(NewBreakpoint)) {
+        PendingSeeds.erase(Seed);
+        SeedToBreapoints[Seed].push_back(NewBreakpoint);
+        return true;
+      }
     }
+    break;
+  }
+  }
 
-    auto &Memory = Process.GetTask().GetMemory();
-    BreakpointSeedSymbol Seed;
-    Seed.Callback = Callback;
-    Seed.Symbol = Symbol;
-    auto NewBreakpoint = std::make_shared<Breakpoint>(
-        BreakpointType::Symbol, Seed, Memory, Symbol->Value);
-    AddBreakpoint(NewBreakpoint);
-    return;
+  return false;
+}
+
+bool Breakpoints::AddBreakpointByAddress(
+    vm_address_t Address, BreakpointByAddressCallback_t Callback) {
+  mad_not_implemented();
+}
+
+BreakpointStatus Breakpoints::AddBreakpointBySymbolName(
+    std::string SymbolName, BreakpointBySymbolNameCallback_t Callback) {
+  if (SeedsBySymbolName.count(SymbolName)) {
+    PRINT_DEBUG("This breakpoint already exists");
+    // TODO: return proper status: set/disabled/pending
+    return BreakpointStatus::SET;
+  }
+  auto Seed = GetSeedBySymbolName(SymbolName, Callback);
+  assert(!SeedToBreapoints[Seed].size() &&
+         "There must not be any breakpoints for this seed yet.");
+
+  PendingSeeds.insert(Seed);
+
+  if (ApplyPendingSeed(Seed)) {
+    return BreakpointStatus::SET;
+  } else {
+    return BreakpointStatus::PENDING;
   }
 }
 
-void AddBreakpointBySymbol(std::string SymbolName, BreakpointBySymbolName_t) {}
+void Breakpoints::RemoveBreakpointBySymbolName(std::string SymbolName) {
+  if (!SeedsBySymbolName.count(SymbolName)) {
+    PRINT_DEBUG("There is no such breakpoint");
+  }
+  auto S = SeedsBySymbolName[SymbolName];
+  if (SeedToBreapoints.count(S)) {
+    for (auto &BP : SeedToBreapoints[S]) {
+      RemoveBreakpoint(BP);
+    }
+    SeedToBreapoints.erase(S);
+  }
+  PendingSeeds.erase(S);
+  SeedsBySymbolName.erase(SymbolName);
+}
 
-void Breakpoints::PreRun() {
+void Breakpoints::HandleMoveToBreakPoint(Breakpoint_sp &BP) {
+  auto &Thread = Process->GetTask().GetThreads().front();
+  Thread.GetStates();
+  Thread.ThreadState64()->__rip = BP->GetAddress();
+  Thread.SetStates();
+}
+
+void Breakpoints::HandleRemove(Breakpoint_sp &BP) {
+  HandleMoveToBreakPoint(BP);
+  // TODO proper removal, if its seed does not have other breaks -> remove it
+  // HMM Do i really need these handlers?
+  BP->Disable();
+}
+
+void Breakpoints::HandleStepOver(Breakpoint_sp &BP) {
+  HandleMoveToBreakPoint(BP);
+  StepOverCurrentBreakpoint();
+}
+
+void Breakpoints::Attach(std::shared_ptr<MachProcess> Proc) {
+  Process = Proc;
   // We search Dynamic Linker in-memory image for the specific function symbol.
   // It is used to sync via breakpoint with a debugger. Once debugger attaches
   // to the process it will stop at _start symbol of the Dynamic Linker, in
   // order to skip the DyLD code we need to setup a breakpoint at this
   // function. This stub function is run just before executing any user code
   // including shared library's init code and C++ static constructors.
-  AddBreakpointBySymbolName("__dyld_debugger_notification",
-                            [this](std::string) {
-                              HandleDebuggerNotification();
-                              return BreakpointCallbackReturn::REMOVE_CONTINUE;
-                            });
+  AddBreakpointBySymbolName(
+      "__dyld_debugger_notification", [this](std::string) {
+        HandleDebuggerNotification();
+        RemoveBreakpointBySymbolName("__dyld_debugger_notification");
+        return BreakpointCallbackReturn::CONTINUE;
+      });
 }
 
-void Breakpoints::PostRun() {}
+void Breakpoints::Detach() {
+  SeedToBreapoints.clear();
+  BreakpointsByAddress.clear();
+  BreakpointsByPage.clear();
+
+  // Any active seed during detaching must be placed into the pending set so
+  // the next process run could use these active breaks.
+  for (auto &Seed : Seeds) {
+    if (Seed->IsActive) {
+      PendingSeeds.insert(Seed);
+    }
+  }
+
+  Process = nullptr;
+}
 
 void Breakpoints::HandleDebuggerNotification() {
-  PRINT_DEBUG("HandleDebuggerNotification");
-  // FIXME: Try to assing all available breakpoints to user code
+  auto ClonePendingSeeds = PendingSeeds;
+  for (auto Seed : ClonePendingSeeds) {
+    if (ApplyPendingSeed(Seed)) {
+    }
+  }
 }
-
-void Breakpoints::HandleRemove(std::shared_ptr<Breakpoint> &BP) {
-  BP->Disable();
-  auto &Thread = Process.GetTask().GetThreads().front();
-  Thread.GetStates();
-  Thread.ThreadState64()->__rip -= BREAKPOINT_SIZE;
-  Thread.SetStates();
-}
-
-void Breakpoints::HandleStepOver(std::shared_ptr<Breakpoint> &) {}
 
 bool Breakpoints::CheckBreakpoints() {
-  auto &Thread = Process.GetTask().GetThreads().front();
+  auto &Thread = Process->GetTask().GetThreads().front();
   Thread.GetStates();
   auto Address = Thread.ThreadState64()->__rip - BREAKPOINT_SIZE;
   if (!BreakpointsByAddress.count(Address)) {
     PRINT_DEBUG("WEIRD, no breakpoints at", HEX(Address));
     auto Start = Thread.ThreadState64()->__rip - 10;
     char mem[50];
-    Process.GetTask().GetMemory().Read(Start, 100, mem);
+    Process->GetTask().GetMemory().Read(Start, 100, mem);
     for (int i = 0; i < 50; ++i) {
       PRINT_DEBUG("MEM:", HEX((Start + i)), HEX(mem[i]));
     }
     return true;
   }
 
-  BreakpointCallbackReturn WhatNext;
+  auto WhatNext = BreakpointCallbackReturn::MOVE_TO_BREAKPOINT;
   auto BP = BreakpointsByAddress.at(Address);
   auto Seed = BP->Seed;
-  switch (BP->Type) {
-  case BreakpointType::Address:
-    mad_unreachable("Not implemented");
+  switch (Seed->Type) {
+  case SeedType::ADDRESS:
+    mad_not_implemented();
     break;
-  case BreakpointType::Symbol:
-    auto SymbolSeed = std::experimental::any_cast<BreakpointSeedSymbol>(&Seed);
-    WhatNext = SymbolSeed->Callback(SymbolSeed->Symbol->Name);
+  case SeedType::SYMBOL:
+    auto SymbolSeed = std::static_pointer_cast<SeedSymbolName>(Seed);
+    WhatNext = SymbolSeed->Callback(SymbolSeed->SymbolName);
     break;
   }
 
   switch (WhatNext) {
+  case BreakpointCallbackReturn::CONTINUE:
+    return true;
+  case BreakpointCallbackReturn::MOVE_TO_BREAKPOINT:
+    HandleMoveToBreakPoint(BP);
+    return false;
   case BreakpointCallbackReturn::REMOVE:
     HandleRemove(BP);
     return false;
@@ -145,4 +272,34 @@ bool Breakpoints::CheckBreakpoints() {
     HandleStepOver(BP);
     return true;
   }
+}
+
+Breakpoint_sp Breakpoints::GetCurrentBreakpoint() {
+  auto &Thread = Process->GetTask().GetThreads().front();
+  Thread.GetStates();
+  auto Address = Thread.ThreadState64()->__rip;
+  if (BreakpointsByAddress.count(Address) &&
+      BreakpointsByAddress[Address]->IsActive) {
+    return BreakpointsByAddress[Address];
+  }
+  return nullptr;
+}
+
+bool Breakpoints::StandingOnBreakpoint() {
+  return GetCurrentBreakpoint() != nullptr;
+}
+
+bool Breakpoints::StepOverCurrentBreakpoint() {
+  auto BP = GetCurrentBreakpoint();
+  if (BP) {
+    BP->Disable();
+  }
+
+  // FIXME: Handle status
+  Process->Step();
+
+  if (BP) {
+    BP->Enable();
+  }
+  return true;
 }

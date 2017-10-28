@@ -32,6 +32,10 @@ public:
     return Parser.SymbolTable->Symbols;
   }
 
+  bool HasSymbol(std::string Name) {
+    return GetSymbolByName(Name) != nullptr;
+  }
+
   std::shared_ptr<SymbolEntry_t> GetSymbolByName(std::string Name) {
     if (SymbolsByName.count(Name)) {
       return SymbolsByName.at(Name);
