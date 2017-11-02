@@ -75,4 +75,52 @@ using BoundFlagAnd = BoundFlag<unsigned, FlagPolicyAnd, Value>;
 
 } // namespace mad
 
+//-----------------------------------------------------------------------------
+// Enum bitmasks
+//
+// NOTE: This can be used ONLY if enum covers ALL possbile bitmask values
+//-----------------------------------------------------------------------------
+
+#define ENUM_BITMASK_DEFINE_AND(E)                                             \
+  inline E operator&(E x, E y) {                                               \
+    return static_cast<E>(static_cast<std::underlying_type<E>::type>(x) &      \
+                          static_cast<std::underlying_type<E>::type>(y));      \
+  }
+#define ENUM_BITMASK_DEFINE_OR(E)                                              \
+  inline E operator|(E x, E y) {                                               \
+    return static_cast<E>(static_cast<std::underlying_type<E>::type>(x) |      \
+                          static_cast<std::underlying_type<E>::type>(y));      \
+  }
+#define ENUM_BITMASK_DEFINE_XOR(E)                                             \
+  inline E operator^(E x, E y) {                                               \
+    return static_cast<E>(static_cast<std::underlying_type<E>::type>(x) ^      \
+                          static_cast<std::underlying_type<E>::type>(y));      \
+  }
+
+#define ENUM_BITMASK_DEFINE_AS_AND(E)                                          \
+  inline E &operator&=(E &x, E y) {                                            \
+    x = x & y;                                                                 \
+    return x;                                                                  \
+  }
+
+#define ENUM_BITMASK_DEFINE_AS_OR(E)                                           \
+  inline E &operator|=(E &x, E y) {                                            \
+    x = x | y;                                                                 \
+    return x;                                                                  \
+  }
+
+#define ENUM_BITMASK_DEFINE_AS_XOR(E)                                          \
+  inline E &operator^=(E &x, E y) {                                            \
+    x = x ^ y;                                                                 \
+    return x;                                                                  \
+  }
+
+#define ENUM_BITMASK_DEFINE_ALL(E)                                             \
+  ENUM_BITMASK_DEFINE_AND(E)                                                   \
+  ENUM_BITMASK_DEFINE_XOR(E)                                                   \
+  ENUM_BITMASK_DEFINE_OR(E)                                                    \
+  ENUM_BITMASK_DEFINE_AS_AND(E)                                                \
+  ENUM_BITMASK_DEFINE_AS_XOR(E)                                                \
+  ENUM_BITMASK_DEFINE_AS_OR(E)
+
 #endif /* end of include guard: UTILS_HPP_J9PMINOK */

@@ -27,7 +27,6 @@ bool ActualBreakpoint::Down() {
 }
 
 bool ActualPointSoftware::Enable() {
-  assert(Count);
 
   if (Memory.Read(Address, sizeof(Original), &Original) != sizeof(Original)) {
     Error Err(MAD_ERROR_BREAKPOINT);
@@ -48,7 +47,6 @@ bool ActualPointSoftware::Enable() {
 }
 
 bool ActualPointSoftware::Disable() {
-  assert(!Count);
 
   // TODO before writing, read current value so it won't overwrite other
   // breakpoint
@@ -75,7 +73,7 @@ void BreakpointsControl::Attach(std::shared_ptr<MachProcess> Proc) {
   // including shared library's init code and C++ static constructors.
   AddBreakpointBySymbolName(
       "__dyld_debugger_notification", [this](std::string) {
-        HandleDebuggerNotification();
+        TryToInstantiateAllPendingSeeds();
         RemoveBreakpointBySymbolName("__dyld_debugger_notification");
         return BreakpointCallbackReturn::CONTINUE;
       });
@@ -120,13 +118,39 @@ APoint_sp BreakpointsControl::GetOrCreateActualBreakpoint(AddressType Address) {
   AllAPoints.insert(APS);
   return APS;
 }
+APoint_sp
+BreakpointsControl::GetActualBreakpointAtAddress(AddressType Address) {
+  if (!APointsByAddress.count(Address)) {
+    return nullptr;
+  }
+  return APointsByAddress.at(Address);
+}
+void BreakpointsControl::TryDestroyActualBreakpoint(APoint_sp &A) {
+  if (A->IsActive()) {
+    return;
+  }
+
+  auto AP = reinterpret_cast<ActualPointSoftware *>(A.get());
+  // auto APS = std::static_pointer_cast<ActualPointSoftware>(A);
+  APointToVPoints.erase(A);
+  APointsByAddress.erase(AP->Address);
+  AllAPoints.erase(A);
+}
 
 bool BreakpointsControl::TryInstantiateSeedAddress(const SeedAddress_sp &) {
   mad_not_implemented();
   return false;
 }
+void BreakpointsControl::DestroySeedAddress(const SeedAddress_sp &) {
+  mad_not_implemented();
+}
+
 bool BreakpointsControl::TryInstantiateSeedSymbolName(
     const SeedSymbolName_sp &S) {
+  if (!Process) {
+    return false;
+  }
+
   VirtualPointSymbol::SymbolType_sp Symbol;
   for (auto &Image : Process->GetImagess()) {
     auto &SymbolTable = Image->GetSymbolTable();
@@ -162,24 +186,45 @@ bool BreakpointsControl::TryInstantiateSeedSymbolName(
 
   return true;
 }
+void BreakpointsControl::DestroySeedSymbolName(const SeedSymbolName_sp &S) {
+  for (auto &VPoint : SeedToVPoints[S]) {
+    auto V = std::static_pointer_cast<VirtualPointSymbol>(VPoint);
+    VPointToSeeds[V].erase(S);
+    auto &A = VPointToAPoint[V];
+
+    VPointToAPoint.erase(V);
+    APointToVPoints[A].erase(V);
+
+    A->Down();
+    TryDestroyActualBreakpoint(A);
+
+    VPointsBySymbol.erase(V->Symbol);
+    AllVPoints.erase(V);
+  }
+  SeedToVPoints.erase(S);
+
+  SeedsBySymbolName.erase(S->SymbolName);
+}
 
 bool BreakpointsControl::TryToInstantiatePendingSeed(const Seed_sp &S) {
   assert(PendingSeeds.count(S));
 
-  bool Intantiated = false;
+  bool Instantiated = false;
 
   switch (S->Type) {
   case SeedType::ADDRESS: {
-    if (!TryInstantiateSeedAddress(std::const_pointer_cast<SeedAddress>(S))) {
+    if (!TryInstantiateSeedAddress(std::static_pointer_cast<SeedAddress>(S))) {
       return false;
     }
+    Instantiated = true;
     break;
   }
   case SeedType::SYMBOL: {
     if (!TryInstantiateSeedSymbolName(
-            std::const_pointer_cast<SeedSymbolName>(S))) {
+            std::static_pointer_cast<SeedSymbolName>(S))) {
       return false;
     }
+    Instantiated = true;
     break;
   }
   case SeedType::LINE: {
@@ -200,11 +245,41 @@ bool BreakpointsControl::TryToInstantiatePendingSeed(const Seed_sp &S) {
   }
   }
 
-  if (Intantiated && S->PendingPolicy == SeedPendingPolicy::REMOVE) {
+  if (Instantiated && S->PendingPolicy == SeedPendingPolicy::REMOVE) {
     PendingSeeds.erase(S);
   }
 
   return true;
+}
+void BreakpointsControl::DestroySeed(const Seed_sp &S) {
+  switch (S->Type) {
+  case SeedType::ADDRESS: {
+    DestroySeedAddress(std::static_pointer_cast<SeedAddress>(S));
+  }
+  case SeedType::SYMBOL: {
+    DestroySeedSymbolName(std::static_pointer_cast<SeedSymbolName>(S));
+    break;
+  }
+  case SeedType::LINE: {
+    mad_not_implemented();
+    break;
+  }
+  case SeedType::REGEX: {
+    mad_not_implemented();
+    break;
+  }
+  case SeedType::CLASS: {
+    mad_not_implemented();
+    break;
+  }
+  case SeedType::FILE: {
+    mad_not_implemented();
+    break;
+  }
+  }
+
+  PendingSeeds.erase(S);
+  AllSeeds.erase(S);
 }
 void BreakpointsControl::TryToInstantiateAllPendingSeeds() {
   auto ClonePending = PendingSeeds;
@@ -213,35 +288,96 @@ void BreakpointsControl::TryToInstantiateAllPendingSeeds() {
   }
 }
 
-void BreakpointsControl::HandleDebuggerNotification() { mad_not_implemented(); }
-
 //-----------------------------------------------------------------------------
 // Controller API
 //-----------------------------------------------------------------------------
-bool BreakpointsControl::AddBreakpointByAddress(vm_address_t Address,
+bool BreakpointsControl::AddBreakpointByAddress(vm_address_t,
                                                 BreakpointByAddressCallback_t) {
   mad_not_implemented();
   return false;
 }
-void BreakpointsControl::RemoveBreakpointByAddress(vm_address_t Address) {
-  mad_not_implemented()
+bool BreakpointsControl::RemoveBreakpointByAddress(vm_address_t) {
+  mad_not_implemented();
+  return false;
 }
 
 bool BreakpointsControl::AddBreakpointBySymbolName(
-    std::string SymbolName, BreakpointBySymbolNameCallback_t) {
+    std::string SymbolName, BreakpointBySymbolNameCallback_t Callback) {
   if (SeedsBySymbolName.count(SymbolName)) {
     PRINT_DEBUG("Breakpoint on", SymbolName, "already exists");
     return false;
   }
 
-  auto S = std::make_shared<SeedAddress>(SymbolName);
+  auto S = std::make_shared<SeedSymbolName>(SymbolName, Callback);
   SeedsBySymbolName.emplace(SymbolName, S);
   AllSeeds.insert(S);
 
-  TryToInstantiatePendingSeed(std::const_pointer_cast<Seed>(S));
+  PendingSeeds.insert(S);
+  TryToInstantiatePendingSeed(S);
 
   return true;
 }
-void BreakpointsControl::RemoveBreakpointBySymbolName(std::string SymbolName) {
-  mad_not_implemented();
+bool BreakpointsControl::RemoveBreakpointBySymbolName(std::string SymbolName) {
+  if (!SeedsBySymbolName.count(SymbolName)) {
+    PRINT_DEBUG("Breakpoint on", SymbolName, "does not exist");
+    return false;
+  }
+
+  auto S = SeedsBySymbolName.at(SymbolName);
+  DestroySeed(S);
+
+  return true;
+}
+bool BreakpointsControl::CheckBreakpoints() {
+  auto &Thread = Process->GetTask().GetThreads().front();
+  Thread.GetStates();
+  auto Address = Thread.ThreadState64()->__rip - BREAKPOINT_SIZE;
+  auto A = GetActualBreakpointAtAddress(Address);
+  if (!A) {
+    PRINT_DEBUG("Weird, no active breakpoints here at", HEX(Address));
+    return true;
+  }
+
+  // Sanity check
+  assert(A->IsActive());
+
+  // Move program counter to breakpoint start address
+  Thread.ThreadState64()->__rip = Address;
+  Thread.SetStates();
+
+  auto NextBits = BreakpointCallbackReturn::CONTINUE;
+  auto APointToVPointsAClone = APointToVPoints.at(A);
+  for (auto &V : APointToVPointsAClone) {
+    auto VPointToSeedsVClone = VPointToSeeds.at(V);
+    for (auto &S : VPointToSeedsVClone) {
+      NextBits |= S->InvokeCallback();
+    }
+  }
+
+  // The program execution will continue if there are no BREAK callback results
+  bool Continue = (NextBits & BreakpointCallbackReturn::BREAK) !=
+                  BreakpointCallbackReturn::BREAK;
+
+  return Continue;
+}
+bool BreakpointsControl::StepOverCurrentBreakpointIfAny() {
+  auto &Thread = Process->GetTask().GetThreads().front();
+  Thread.GetStates();
+  auto Address = Thread.ThreadState64()->__rip - BREAKPOINT_SIZE;
+  auto A = GetActualBreakpointAtAddress(Address);
+  bool Active = A && A->IsActive();
+  if (Active) {
+    A->Disable();
+  }
+
+  Process->Step();
+
+  if (Active) {
+    A->Enable();
+  }
+
+  return true;
+}
+
+void BreakpointsControl::PrintStats() {
 }

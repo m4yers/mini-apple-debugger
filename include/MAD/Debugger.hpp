@@ -9,7 +9,7 @@
 #include <vector>
 
 // MAD
-#include "MAD/Breakpoints.hpp"
+#include "MAD/BreakpointsControl.hpp"
 #include "MAD/MachMemory.hpp"
 #include "MAD/MachProcess.hpp"
 #include "MAD/Prompt.hpp"
@@ -21,11 +21,12 @@ private:
   Prompt Prompt;
   std::string Exe;
   std::shared_ptr<MachProcess> Process;
-  Breakpoints BreakpointsCtrl;
+  BreakpointsControl BreakpointsCtrl;
 
 private:
   void HandleProcessContinue();
   void HandleProcessRun();
+  void HandleProcessStop();
 
   void HandleBreakpointSet(const std::shared_ptr<PromptCmdBreakpointSet> &BPS);
   BreakpointCallbackReturn HandleSymbolNameBreakpoint(std::string);

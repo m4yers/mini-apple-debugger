@@ -60,6 +60,7 @@ inline std::string MadErrorToString(unsigned Value) {
 }
 
 class Error {
+public:
   ErrorType Value;
   ErrorFlavour Flavour;
   std::string Text;

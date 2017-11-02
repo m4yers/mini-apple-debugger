@@ -30,25 +30,29 @@ void Debugger::HandleProcessContinue() {
 
   bool Continue = true;
   while (Continue) {
-    if (BreakpointsCtrl.StandingOnBreakpoint()) {
-      BreakpointsCtrl.StepOverCurrentBreakpoint();
-    }
+    BreakpointsCtrl.StepOverCurrentBreakpointIfAny();
+
     Continue = false;
     auto Status = Process->Continue();
     switch (Status.Type) {
     case MachProcessStatusType::ERROR:
-      Prompt.Say("Could not run program", Exe);
+      // To make life under lldb easier...
+      if (Status.Error.Flavour == ErrorFlavour::POSIX &&
+          Status.Error.Value == EINTR) {
+        continue;
+      }
+      Status.Error.Log("Counld continue process", Process->GetPID());
+      HandleProcessStop();
       break;
     case MachProcessStatusType::CONTINUED:
       break;
     case MachProcessStatusType::EXITED:
       Prompt.Say("Program", Exe, "finished with status", Status.ExitStatus);
-      BreakpointsCtrl.Detach();
-      Process->Detach();
-      Process = nullptr;
+      HandleProcessStop();
       break;
     case MachProcessStatusType::SIGNALED:
-      Prompt.Say("Program", Exe, "signaled");
+      Prompt.Say("Program", Exe, "has been signaled", Status.TermSignal);
+      HandleProcessStop();
       break;
     case MachProcessStatusType::STOPPED:
       // FIXME handle signals
@@ -89,8 +93,14 @@ void Debugger::HandleProcessRun() {
     exit(2);
   }
 
-  int WaitStatus;
-  waitpid(Process->GetPID(), &WaitStatus, 0);
+  sleep(1);
+  // MachProcessStatus Status;
+  // Process->Wait(Status);
+  //
+  // if (Status.Error) {
+  //   PRINT_ERROR("Failed to wait");
+  //   exit(1);
+  // }
 
   PRINT_DEBUG("Attaching to", Exe, "at", Process->GetPID(), "...");
   if (!Process->Attach()) {
@@ -102,6 +112,12 @@ void Debugger::HandleProcessRun() {
   BreakpointsCtrl.Attach(Process);
 
   HandleProcessContinue();
+}
+
+void Debugger::HandleProcessStop() {
+  BreakpointsCtrl.Detach();
+  Process->Detach();
+  Process = nullptr;
 }
 
 void Debugger::HandleBreakpointSet(
@@ -119,7 +135,7 @@ void Debugger::HandleBreakpointSet(
 BreakpointCallbackReturn
 Debugger::HandleSymbolNameBreakpoint(std::string SymbolName) {
   PRINT_DEBUG("BREAK ON", SymbolName);
-  return BreakpointCallbackReturn::MOVE_TO_BREAKPOINT;
+  return BreakpointCallbackReturn::BREAK;
 }
 
 int Debugger::Start(int argc, char *argv[]) {

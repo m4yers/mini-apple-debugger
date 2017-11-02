@@ -32,36 +32,36 @@ using namespace mad;
 typedef void *dyld_process_info;
 
 MachProcess::MachProcess(std::string exec)
-    : Exec(exec), PID(0), Task(), Memory(Task.GetMemory()) {
-  dyld_process_info_create = (dyld_process_info_create_t)dlsym(
-      RTLD_DEFAULT, "_dyld_process_info_create");
-  dyld_process_info_for_each_image = (dyld_process_info_for_each_image_t)dlsym(
-      RTLD_DEFAULT, "_dyld_process_info_for_each_image");
-  dyld_process_info_release = (dyld_process_info_release_t)dlsym(
-      RTLD_DEFAULT, "_dyld_process_info_release");
-  dyld_process_info_get_cache = (dyld_process_info_get_cache_t)dlsym(
-      RTLD_DEFAULT, "_dyld_process_info_get_cache");
-}
+  : Exec(exec), PID(0), Task(), Memory(Task.GetMemory()) {
+    dyld_process_info_create = (dyld_process_info_create_t)dlsym(
+        RTLD_DEFAULT, "_dyld_process_info_create");
+    dyld_process_info_for_each_image = (dyld_process_info_for_each_image_t)dlsym(
+        RTLD_DEFAULT, "_dyld_process_info_for_each_image");
+    dyld_process_info_release = (dyld_process_info_release_t)dlsym(
+        RTLD_DEFAULT, "_dyld_process_info_release");
+    dyld_process_info_get_cache = (dyld_process_info_get_cache_t)dlsym(
+        RTLD_DEFAULT, "_dyld_process_info_get_cache");
+  }
 
 void MachProcess::FindAllImages() {
   kern_return_t kern_ret;
   dyld_process_info Info =
-      dyld_process_info_create(Task.GetPort(), 0, &kern_ret);
+    dyld_process_info_create(Task.GetPort(), 0, &kern_ret);
   dyld_process_info_for_each_image(Info, ^(uint64_t mach_header_addr,
-                                           const uuid_t, const char *path) {
-    // N.B. Why the fuck I cannot use move-constructor here?
-    PRINT_DEBUG("Process image", path, "at", HEX(mach_header_addr));
-    auto Image = std::make_shared<MachImage64>(path, Task, mach_header_addr);
-    Image->Scan();
-    ImagesByName.insert({path, Image});
-    auto Type = Image->GetType();
-    if (!ImagesByType.count(Type)) {
+        const uuid_t, const char *path) {
+      // N.B. Why the fuck I cannot use move-constructor here?
+      PRINT_DEBUG("Process image", path, "at", HEX(mach_header_addr));
+      auto Image = std::make_shared<MachImage64>(path, Task, mach_header_addr);
+      Image->Scan();
+      ImagesByName.insert({path, Image});
+      auto Type = Image->GetType();
+      if (!ImagesByType.count(Type)) {
       ImagesByType.insert({Type, {}});
-    }
-    ImagesByType[Type].push_back(Image);
-    Images.push_back(Image);
+      }
+      ImagesByType[Type].push_back(Image);
+      Images.push_back(Image);
 
-  });
+      });
   dyld_process_info_release(Info);
   // for (auto &pair : ImagesByName) {
   //   auto &Image = pair.second;
@@ -82,7 +82,7 @@ void MachProcess::FindAllImages() {
 // TODO: This method must not return a memory read containing breakpoints. It
 // will clean the read buffer from enabled breakpoints
 vm_size_t MachProcess::ReadMemory(vm_address_t address, vm_size_t size,
-                                  void *data) {
+    void *data) {
   vm_size_t bytes = Memory.Read(address, size, data);
   return bytes;
 }
@@ -90,7 +90,7 @@ vm_size_t MachProcess::ReadMemory(vm_address_t address, vm_size_t size,
 // TODO: This method must not overwrite existing breakpoints. It will write
 // memory first then re apply enabled breakpoints
 vm_size_t MachProcess::WriteMemory(vm_address_t address, vm_offset_t data,
-                                   mach_msg_type_number_t count) {
+    mach_msg_type_number_t count) {
   vm_size_t bytes = Memory.Write(address, data, count);
   return bytes;
 }
@@ -131,7 +131,14 @@ void MachProcess::Detach() {
 
 void MachProcess::Wait(MachProcessStatus &Status) {
   int WaitStatus;
+
+  errno = 0;
   waitpid(PID, &WaitStatus, 0);
+  if (errno) {
+    Status.Type = MachProcessStatusType::ERROR;
+    Status.Error = Error::FromErrno();
+  }
+
   if (WIFCONTINUED(WaitStatus)) {
     Status.Type = MachProcessStatusType::CONTINUED;
   } else if (WIFSTOPPED(WaitStatus)) {
@@ -153,7 +160,6 @@ MachProcessStatus MachProcess::Step() {
   if (ptrace(PT_STEP, PID, (caddr_t)1, 0) < 0) {
     Status.Type = MachProcessStatusType::ERROR;
     Status.Error = Error(MAD_ERROR_PROCESS);
-    Status.Error.Log("Counld not step process", PID);
   } else {
     Wait(Status);
   }
@@ -167,7 +173,6 @@ MachProcessStatus MachProcess::Continue() {
   if (ptrace(PT_CONTINUE, PID, (caddr_t)1, 0) < 0) {
     Status.Type = MachProcessStatusType::ERROR;
     Status.Error = Error(MAD_ERROR_PROCESS);
-    Status.Error.Log("Counld not continue process", PID);
   } else {
     Wait(Status);
   }

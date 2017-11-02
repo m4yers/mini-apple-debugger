@@ -79,8 +79,6 @@ public:
 
   MachProcessStatus Step();
   MachProcessStatus Continue();
-
-private:
   void Wait(MachProcessStatus &);
 
 private:

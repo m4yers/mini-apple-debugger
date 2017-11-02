@@ -90,9 +90,9 @@ void Prompt::ShowCommands() {
   Say("Commands shortcuts:");
   for (auto &ShortPair : ShortcutToCommand) {
     auto Group = PromptCmdGroupToString(ShortPair.second->Group).c_str();
-    auto Name = ShortPair.second->Name.c_str();
+    auto SName = ShortPair.second->Name.c_str();
     auto Short = ShortPair.second->Shortcut.c_str();
-    printf("  %-10s -- %s %s\n", Short, Group, Name);
+    printf("  %-10s -- %s %s\n", Short, Group, SName);
   }
 }
 
