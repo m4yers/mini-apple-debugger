@@ -234,7 +234,12 @@ private:
 
 public:
   void Attach(std::shared_ptr<MachProcess> Process);
-  void Detach();
+
+  // IsProcessValid flag is used to force the controller to clean-up disable
+  // breakpoints.  Normally when this method is called the process is dead and
+  // there is no way to access its memory so we cannot remove breakpoints at
+  // this point.
+  void Detach(bool IsProcessValid = false);
 
   bool AddBreakpointByAddress(AddressType Address,
                               BreakpointByAddressCallback_t);

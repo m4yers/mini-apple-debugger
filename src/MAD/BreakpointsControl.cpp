@@ -79,11 +79,13 @@ void BreakpointsControl::Attach(std::shared_ptr<MachProcess> Proc) {
       });
 }
 
-void BreakpointsControl::Detach() {
+void BreakpointsControl::Detach(bool IsProcessValid) {
   // 1. Disable all active breakpoints
-  for (auto &Point : AllAPoints) {
-    if (Point->IsActive()) {
-      Point->Disable();
+  if (IsProcessValid) {
+    for (auto &Point : AllAPoints) {
+      if (Point->IsActive()) {
+        Point->Disable();
+      }
     }
   }
 
@@ -363,7 +365,7 @@ bool BreakpointsControl::CheckBreakpoints() {
 bool BreakpointsControl::StepOverCurrentBreakpointIfAny() {
   auto &Thread = Process->GetTask().GetThreads().front();
   Thread.GetStates();
-  auto Address = Thread.ThreadState64()->__rip - BREAKPOINT_SIZE;
+  auto Address = Thread.ThreadState64()->__rip;
   auto A = GetActualBreakpointAtAddress(Address);
   bool Active = A && A->IsActive();
   if (Active) {
@@ -379,5 +381,4 @@ bool BreakpointsControl::StepOverCurrentBreakpointIfAny() {
   return true;
 }
 
-void BreakpointsControl::PrintStats() {
-}
+void BreakpointsControl::PrintStats() {}

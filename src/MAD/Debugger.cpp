@@ -93,14 +93,14 @@ void Debugger::HandleProcessRun() {
     exit(2);
   }
 
-  sleep(1);
-  // MachProcessStatus Status;
-  // Process->Wait(Status);
-  //
-  // if (Status.Error) {
-  //   PRINT_ERROR("Failed to wait");
-  //   exit(1);
-  // }
+  // sleep(1);
+  MachProcessStatus Status;
+  Process->Wait(Status);
+
+  if (Status.Error) {
+    PRINT_ERROR("Failed to wait");
+    exit(1);
+  }
 
   PRINT_DEBUG("Attaching to", Exe, "at", Process->GetPID(), "...");
   if (!Process->Attach()) {
